@@ -132,6 +132,11 @@
             color: #991b1b;
         }
 
+        .status-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
         .chart-container {
             margin-top: 20px;
             padding: 20px;
@@ -386,6 +391,20 @@
             paginationState.metrics = 0;
             paginationState.logs = 0;
             paginationState.traces = 0;
+        }
+
+        function createStatusBadge(statusCode) {
+            const badge = document.createElement("span");
+            badge.className = "status-badge";
+            badge.classList.add(
+                statusCode >= 500
+                    ? "status-error"
+                    : statusCode >= 400
+                        ? "status-warning"
+                        : "status-success"
+            );
+            badge.textContent = statusCode;
+            return badge;
         }
 
         async function loadSummary() {
@@ -701,6 +720,8 @@
                                 ).requestSubmit();
                             });
                             cell.appendChild(link);
+                        } else if (value === trace.status_code) {
+                            cell.appendChild(createStatusBadge(value));
                         } else {
                             cell.textContent = value;
                         }
@@ -753,11 +774,15 @@
 
                     const summaryElement = document.createElement("div");
                     summaryElement.className = "trace-span";
-                    summaryElement.textContent =
+                    const summaryLabel = document.createElement("span");
+                    summaryLabel.textContent =
                         `${summary.operation} — ` +
-                        `${summary.status_code} — ` +
                         `${summary.duration_ms.toFixed(2)} ms — ` +
                         `${summary.span_count} spans`;
+                    summaryElement.appendChild(summaryLabel);
+                    summaryElement.appendChild(
+                        createStatusBadge(summary.status_code)
+                    );
                     detailsContainer.appendChild(summaryElement);
 
                     traces.forEach((trace) => {
@@ -769,11 +794,15 @@
                         const label = document.createElement("div");
                         label.textContent =
                             `${trace.parent_span_id !== null ? "↳ " : ""}` +
-                            `${trace.operation} — ${trace.status_code} — ` +
+                            `${trace.operation} — ` +
                             `${trace.duration_ms.toFixed(2)} ms — ` +
                             `${new Date(
                                 trace.started_at
                             ).toLocaleString()}`;
+                        label.appendChild(
+                            document.createTextNode(" ")
+                        );
+                        label.appendChild(createStatusBadge(trace.status_code));
                         const bar = document.createElement("div");
                         bar.className = "trace-span-bar";
                         const rootDuration = Math.max(
