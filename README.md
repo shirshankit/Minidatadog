@@ -73,6 +73,16 @@ Alert history records each alert lifecycle once. An event is marked
 `TRIGGERED` when its condition first becomes true and `RESOLVED` when the
 condition returns to normal.
 
+Alert rules can be created and disabled from the dashboard. To test an alert,
+create a rule for `demo-service`, trigger `/simulate-error`, and refresh the
+dashboard. To test resolution, use a threshold that can move from true to
+false, such as `average_duration_ms`, then change the threshold above the
+current value.
+
+If `ALERT_WEBHOOK_URL` is configured, active alert evaluations send a JSON
+webhook notification. `ALERT_COOLDOWN_SECONDS` prevents repeated notifications
+for the same rule; it defaults to 900 seconds.
+
 ## Deploy to Render
 
 This repository includes [render.yaml](./render.yaml), which provisions a
