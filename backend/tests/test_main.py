@@ -79,6 +79,36 @@ def test_list_products(client: TestClient) -> None:
         {"id": 3, "name": "Monitor", "price": 199},
     ]
 
+
+def test_unique_test_endpoint_creates_distinct_events(
+    client: TestClient,
+) -> None:
+    first_response = client.get(
+        "/test/unique",
+        params={"label": "friend-location-a"},
+    )
+    second_response = client.get(
+        "/test/unique",
+        params={"label": "friend-location-b"},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    first_event = first_response.json()
+    second_event = second_response.json()
+    assert first_event["event_id"] != second_event["event_id"]
+    assert first_event["label"] == "friend-location-a"
+    assert second_event["label"] == "friend-location-b"
+
+
+def test_unique_test_endpoint_validates_label(
+    client: TestClient,
+) -> None:
+    response = client.get("/test/unique?label=")
+
+    assert response.status_code == 422
+
+
 def test_request_includes_process_time(client: TestClient) -> None:
     response = client.get("/health")
 

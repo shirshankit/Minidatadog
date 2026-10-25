@@ -420,6 +420,20 @@ def list_products() -> list[dict[str, int | str]]:
     ]
 
 
+@app.get("/test/unique")
+def create_unique_test_event(
+    label: str = Query(default="friend-test", min_length=1, max_length=80),
+) -> dict[str, str]:
+    event_id = str(uuid4())
+    return {
+        "status": "ok",
+        "message": "Unique test event created",
+        "event_id": event_id,
+        "label": label,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 @app.get("/simulate-error")
 def simulate_error() -> None:
     raise HTTPException(

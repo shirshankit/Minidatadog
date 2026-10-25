@@ -60,6 +60,7 @@ over HTTPS.
 | `GET /health` | Application health |
 | `GET /health/database` | PostgreSQL health |
 | `GET /dashboard` | Observability dashboard |
+| `GET /test/unique` | Create a uniquely identified remote test event |
 | `GET /metrics` | Request metrics with filters and pagination |
 | `GET /logs` | Structured logs with filters and pagination |
 | `GET /traces` | Request trace spans with filters and pagination |
@@ -72,6 +73,11 @@ The paginated telemetry endpoints accept `limit` (1-500) and `offset` (0 or
 greater). Metrics, logs, and traces also accept `since_seconds` for a positive
 rolling time window. They return `X-Total-Count`, `X-Limit`, and `X-Offset`
 headers.
+
+To create a new test event from another location, open
+`/test/unique?label=friend-location` or call it with `curl`. The response
+contains a unique `event_id`; the request itself also creates a metric, log,
+and trace with its own `X-Request-ID`.
 
 Logs submitted through `POST /logs` may include `request_id` to correlate an
 application log with an existing request trace.
