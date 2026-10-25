@@ -393,6 +393,52 @@
             padding: 24px;
         }
 
+        .dashboard-section {
+            margin-top: 28px;
+            padding: 24px;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            background: rgb(17 24 39 / 88%);
+            box-shadow: var(--shadow);
+        }
+
+        .dashboard-section > h2 {
+            margin-top: 0;
+        }
+
+        .dashboard-section > h3 {
+            margin-top: 24px;
+        }
+
+        .dashboard-section .chart-container,
+        .dashboard-section table {
+            border-color: rgb(38 52 77 / 82%);
+            box-shadow: none;
+        }
+
+        .section-kicker {
+            margin: -4px 0 18px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .toolbar label {
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .toolbar button {
+            min-height: 40px;
+        }
+
         #alerts-section h2 {
             margin-top: 0;
         }
@@ -556,18 +602,23 @@
                 grid-template-columns: 1fr;
             }
 
-            body > input,
-            body > select,
-            body > button {
+            .toolbar input,
+            .toolbar select,
+            .toolbar button {
                 width: 100%;
                 margin-top: 8px;
             }
 
-            body > label {
-                margin-top: 16px;
+            .toolbar label {
+                width: 100%;
+                margin-top: 8px;
             }
 
             #alerts-section {
+                padding: 16px;
+            }
+
+            .dashboard-section {
                 padding: 16px;
             }
 
@@ -580,40 +631,41 @@
 
 <body>
     <h1>MiniDatadog Dashboard</h1>
-    <label for="service-name">Service:</label>
-    <input type="text" id="service-name" value="demo-service" placeholder="Enter service name">
-    <button id="filter-button">Apply Filter</button>
-    <label for="log-level">Log level:</label>
-    <select id="log-level">
-        <option value="">All levels</option>
-        <option value="INFO">INFO</option>
-        <option value="WARNING">WARNING</option>
-        <option value="ERROR">ERROR</option>
-    </select>
-
-    <div class="cards">
-        <div class="card">
-            <div class="label">Total Requests</div>
-            <div class="value" id="total-requests">-</div>
+    <section class="dashboard-section" id="overview-section">
+        <h2>Overview</h2>
+        <p class="section-kicker">Monitor service health and filter the telemetry below.</p>
+        <div class="toolbar">
+            <label for="service-name">Service:</label>
+            <input type="text" id="service-name" value="demo-service" placeholder="Enter service name">
+            <button id="filter-button">Apply Filter</button>
+            <label for="log-level">Log level:</label>
+            <select id="log-level">
+                <option value="">All levels</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+            </select>
         </div>
-
-        <div class="card">
-            <div class="label">Errors</div>
-            <div class="value" id="error-count">-</div>
+        <div class="cards">
+            <div class="card">
+                <div class="label">Total Requests</div>
+                <div class="value" id="total-requests">-</div>
+            </div>
+            <div class="card">
+                <div class="label">Errors</div>
+                <div class="value" id="error-count">-</div>
+            </div>
+            <div class="card">
+                <div class="label">Error Rate</div>
+                <div class="value" id="error-rate">-</div>
+            </div>
+            <div class="card">
+                <div class="label">Average Duration</div>
+                <div class="value" id="average-duration">-</div>
+            </div>
         </div>
-
-        <div class="card">
-            <div class="label">Error Rate</div>
-            <div class="value" id="error-rate">-</div>
-        </div>
-
-        <div class="card">
-            <div class="label">Average Duration</div>
-            <div class="value" id="average-duration">-</div>
-        </div>
-    </div>
-
-    <div id="message"></div>
+        <div id="message"></div>
+    </section>
 
     <section id="alerts-section">
         <h2>Active Alerts</h2>
@@ -659,89 +711,97 @@
         <h3>Alert History</h3>
         <div id="alert-history-container">
             <p>No alert history yet.</p>
+        </section>
+
+    <section class="dashboard-section" id="performance-section">
+        <h2>Performance</h2>
+        <p class="section-kicker">Request duration over the latest collected metrics.</p>
+        <div class="chart-container">
+            <canvas id="duration-chart"></canvas>
         </div>
     </section>
 
-    <h2>Request Duration Chart</h2>
-
-    <div class="chart-container">
-        <canvas id="duration-chart"></canvas>
+    <section class="dashboard-section" id="requests-section">
+        <h2>Recent Requests</h2>
+        <p class="section-kicker">HTTP request metrics and response performance.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Method</th>
+                    <th>Path</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Request ID</th>
+                </tr>
+            </thead>
+            <tbody id="metrics-table-body"></tbody>
+        </table>
+        <div class="pagination">
+            <button id="metrics-previous" type="button">Previous</button>
+            <span class="page-label" id="metrics-page">Page 1</span>
+            <button id="metrics-next" type="button">Next</button>
+        </div>
     </div>
+    </section>
 
-    <h2>Recent Requests</h2>
+    <section class="dashboard-section" id="logs-section">
+        <h2>Recent Logs</h2>
+        <p class="section-kicker">Structured application events grouped by request.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Service</th>
+                    <th>Level</th>
+                    <th>Message</th>
+                    <th>Recorded At</th>
+                    <th>Request ID</th>
+                </tr>
+            </thead>
+            <tbody id="logs-table-body"></tbody>
+        </table>
+        <div class="pagination">
+            <button id="logs-previous" type="button">Previous</button>
+            <span class="page-label" id="logs-page">Page 1</span>
+            <button id="logs-next" type="button">Next</button>
+        </div>
+    </section>
 
-    <table>
-        <thead>
-            <tr>
-                <th>Service</th>
-                <th>Method</th>
-                <th>Path</th>
-                <th>Status</th>
-                <th>Duration</th>
-                <th>Request ID</th>
-            </tr>
-        </thead>
-        <tbody id="metrics-table-body"></tbody>
-    </table>
-    <div class="pagination">
-        <button id="metrics-previous" type="button">Previous</button>
-        <span class="page-label" id="metrics-page">Page 1</span>
-        <button id="metrics-next" type="button">Next</button>
-    </div>
-
-    <h2>Recent Logs</h2>
-
-    <table>
-        <thead>
-            <tr>
-                <th>Service</th>
-                <th>Level</th>
-                <th>Message</th>
-                <th>Recorded At</th>
-                <th>Request ID</th>
-            </tr>
-        </thead>
-        <tbody id="logs-table-body"></tbody>
-    </table>
-    <div class="pagination">
-        <button id="logs-previous" type="button">Previous</button>
-        <span class="page-label" id="logs-page">Page 1</span>
-        <button id="logs-next" type="button">Next</button>
-    </div>
-
-    <h2>Recent Traces</h2>
-
-    <table>
-        <thead>
-            <tr>
-                <th>Request ID</th>
-                <th>Service</th>
-                <th>Operation</th>
-                <th>Status</th>
-                <th>Duration</th>
-                <th>Started At</th>
-            </tr>
-        </thead>
-        <tbody id="traces-table-body"></tbody>
-    </table>
-    <div class="pagination">
-        <button id="traces-previous" type="button">Previous</button>
-        <span class="page-label" id="traces-page">Page 1</span>
-        <button id="traces-next" type="button">Next</button>
-    </div>
-    <h3>Trace Details</h3>
-    <form class="alert-rule-form" id="trace-search-form">
-        <input
-            id="trace-request-id"
-            type="text"
-            placeholder="Request ID"
-            required
-        >
-        <button type="submit">Find Trace</button>
-    </form>
-    <div id="trace-details-container">
-        <p>Enter a request ID to inspect its trace.</p>
-    </div>
+    <section class="dashboard-section" id="traces-section">
+        <h2>Recent Traces</h2>
+        <p class="section-kicker">Follow request execution across parent and child spans.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Request ID</th>
+                    <th>Service</th>
+                    <th>Operation</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Started At</th>
+                </tr>
+            </thead>
+            <tbody id="traces-table-body"></tbody>
+        </table>
+        <div class="pagination">
+            <button id="traces-previous" type="button">Previous</button>
+            <span class="page-label" id="traces-page">Page 1</span>
+            <button id="traces-next" type="button">Next</button>
+        </div>
+        <h3>Trace Details</h3>
+        <form class="alert-rule-form" id="trace-search-form">
+            <input
+                id="trace-request-id"
+                type="text"
+                placeholder="Request ID"
+                required
+            >
+            <button type="submit">Find Trace</button>
+        </form>
+        <div id="trace-details-container">
+            <p>Enter a request ID to inspect its trace.</p>
+        </div>
+    </section>
 
     <script>
         const pageSize = 10;
