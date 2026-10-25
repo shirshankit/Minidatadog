@@ -29,8 +29,8 @@ The application reads these environment variables:
 | `DATABASE_URL` | PostgreSQL connection string | required |
 | `SERVICE_NAME` | Service name attached to telemetry | required |
 | `TELEMETRY_RETENTION_DAYS` | Number of days to retain metrics, logs, and traces | `5` |
-| `MINIDATADOG_USERNAME` | Optional Basic Authentication username | disabled |
-| `MINIDATADOG_PASSWORD` | Optional Basic Authentication password | disabled |
+| `MINIDATADOG_USERNAME` | Legacy setting; no longer used for dashboard access | unused |
+| `MINIDATADOG_PASSWORD` | Legacy setting; no longer used for dashboard access | unused |
 | `FORCE_HTTPS` | Adds HSTS headers when set to `true` behind HTTPS | disabled |
 | `ALERT_WEBHOOK_URL` | Optional webhook URL for triggered alerts | disabled |
 | `ALERT_COOLDOWN_SECONDS` | Minimum time between notifications for one rule | `900` |
@@ -38,7 +38,9 @@ The application reads these environment variables:
 Old telemetry is cleaned automatically during application startup according to
 `TELEMETRY_RETENTION_DAYS`. The value must be a positive integer.
 
-When `ALERT_WEBHOOK_URL` is configured, the application sends a JSON `POST`
+The dashboard and built-in API are publicly accessible. External project
+telemetry remains isolated by the project's `X-API-Key`; keep those keys
+private. When `ALERT_WEBHOOK_URL` is configured, the application sends a JSON `POST`
 notification when a rule is triggered. Notifications are disabled by default
 and are limited by `ALERT_COOLDOWN_SECONDS` (15 minutes by default).
 
@@ -155,9 +157,7 @@ Docker web service and a PostgreSQL database.
 1. Push the repository to GitHub or GitLab.
 2. In Render, choose **New > Blueprint** and select the repository.
 3. Review the services from `render.yaml` and apply the blueprint.
-4. Set `MINIDATADOG_USERNAME` and `MINIDATADOG_PASSWORD` in the Render
-   dashboard. These values are intentionally not stored in the repository.
-5. Open the generated service URL and verify `/health` and `/dashboard`.
+4. Open the generated service URL and verify `/health` and `/dashboard`.
 
 Render supplies the `PORT` variable to the Docker container. The service uses
 the managed PostgreSQL connection string from the database resource, and

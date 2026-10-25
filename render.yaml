@@ -19,11 +19,6 @@ services:
         sync: false
       - key: ALERT_COOLDOWN_SECONDS
         value: "900"
-      - key: MINIDATADOG_USERNAME
-        sync: false
-      - key: MINIDATADOG_PASSWORD
-        sync: false
-
 databases:
   - name: minidatadog-db
     plan: free

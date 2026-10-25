@@ -1,6 +1,3 @@
-import base64
-import binascii
-import hmac
 import os
 from datetime import datetime, timezone
 from time import perf_counter
@@ -106,62 +103,6 @@ async def add_security_headers(request: Request, call_next):
             "max-age=31536000; includeSubDomains"
         )
     return response
-
-@app.middleware("http")
-async def require_basic_auth(request: Request, call_next):
-    if (
-        request.url.path == "/health"
-        or request.url.path.startswith("/api/v1/ingest")
-        or request.url.path.startswith("/api/v1/data")
-    ):
-        return await call_next(request)
-
-    username = os.getenv("MINIDATADOG_USERNAME")
-    password = os.getenv("MINIDATADOG_PASSWORD")
-
-    if username is None and password is None:
-        return await call_next(request)
-
-    if not username or not password:
-        return Response(
-            content="Authentication configuration is incomplete",
-            status_code=500,
-        )
-
-    authorization = request.headers.get("Authorization", "")
-    scheme, _, encoded_credentials = authorization.partition(" ")
-
-    if scheme.lower() != "basic" or not encoded_credentials:
-        return Response(
-            content="Authentication required",
-            status_code=401,
-            headers={"WWW-Authenticate": "Basic"},
-        )
-
-    try:
-        decoded_credentials = base64.b64decode(
-            encoded_credentials,
-            validate=True,
-        ).decode("utf-8")
-        supplied_username, supplied_password = (
-            decoded_credentials.split(":", 1)
-        )
-    except (ValueError, UnicodeDecodeError, binascii.Error):
-        supplied_username = ""
-        supplied_password = ""
-
-    if not (
-        hmac.compare_digest(supplied_username, username)
-        and hmac.compare_digest(supplied_password, password)
-    ):
-        return Response(
-            content="Invalid credentials",
-            status_code=401,
-            headers={"WWW-Authenticate": "Basic"},
-        )
-
-    return await call_next(request)
-
 
 def require_external_project(x_api_key: str | None) -> int:
     if not x_api_key:
