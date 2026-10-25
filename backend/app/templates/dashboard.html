@@ -727,9 +727,27 @@
                 ruleElement.style.borderLeftColor = "#2563eb";
                 ruleElement.style.background = "#eff6ff";
                 ruleElement.style.color = "#1e40af";
-                ruleElement.textContent =
+                const ruleText = document.createElement("span");
+                ruleText.textContent =
                     `${rule.service_name}: ${rule.metric} ` +
                     `${rule.operator} ${rule.threshold}`;
+                const disableButton = document.createElement("button");
+                disableButton.type = "button";
+                disableButton.textContent = "Disable";
+                disableButton.style.marginLeft = "12px";
+                disableButton.addEventListener("click", async () => {
+                    const response = await fetch(
+                        `/alerts/rules/${rule.id}`,
+                        {method: "DELETE"}
+                    );
+                    if (!response.ok) {
+                        throw new Error("Unable to disable alert rule");
+                    }
+                    await loadAlertRules();
+                    await loadAlerts();
+                });
+                ruleElement.appendChild(ruleText);
+                ruleElement.appendChild(disableButton);
                 rulesContainer.appendChild(ruleElement);
             });
         }

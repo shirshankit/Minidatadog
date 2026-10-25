@@ -352,6 +352,28 @@ def test_list_alert_rules(client: TestClient) -> None:
     )
 
 
+def test_disable_alert_rule(client: TestClient) -> None:
+    response = client.post(
+        "/alerts/rules",
+        json={
+            "service_name": "disable-test-service",
+            "metric": "error_count",
+            "operator": ">",
+            "threshold": 0,
+        },
+    )
+    rule_id = response.json()["id"]
+
+    disable_response = client.delete(f"/alerts/rules/{rule_id}")
+
+    assert disable_response.status_code == 204
+    assert not any(
+        rule["id"] == rule_id
+        for rule in client.get("/alerts/rules").json()
+    )
+    assert client.delete(f"/alerts/rules/{rule_id}").status_code == 404
+
+
 def test_triggered_alerts_include_matching_rule(
     client: TestClient,
 ) -> None:

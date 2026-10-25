@@ -21,6 +21,7 @@ from backend.app.database import (
     create_alert_rule,
     create_application_log,
     create_trace_span,
+    disable_alert_rule,
     evaluate_alert_rules,
     fetch_alert_rules,
     fetch_application_logs,
@@ -241,6 +242,16 @@ def list_alert_rules() -> list[AlertRuleResponse]:
         AlertRuleResponse(**alert_rule)
         for alert_rule in fetch_alert_rules()
     ]
+
+
+@app.delete("/alerts/rules/{rule_id}", status_code=204)
+def disable_alert_rule_endpoint(rule_id: int) -> None:
+    if not disable_alert_rule(rule_id):
+        raise HTTPException(
+            status_code=404,
+            detail="Alert rule not found",
+        )
+
 
 @app.get(
     "/alerts/triggered",

@@ -409,6 +409,21 @@ def fetch_alert_rules() -> list[dict[str, str | float | int | bool]]:
         for row in rows
     ]
 
+
+def disable_alert_rule(rule_id: int) -> bool:
+    query = """
+        UPDATE alert_rules
+        SET enabled = FALSE
+        WHERE id = %s AND enabled = TRUE
+    """
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (rule_id,))
+            updated = cursor.rowcount
+        connection.commit()
+    return updated == 1
+
+
 def evaluate_alert_rules() -> list[dict[str, str | float | int | bool]]:
     alert_rules = fetch_alert_rules()
     triggered_alerts: list[dict[str, str | float | int | bool]] = []
