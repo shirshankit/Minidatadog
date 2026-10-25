@@ -850,8 +850,8 @@
     <section class="dashboard-section" id="external-project-section">
         <h2>External Applications</h2>
         <p class="section-kicker">
-            Create a private project for another application and inspect its
-            metrics, logs, and traces with a project API key.
+            Create an isolated project for any external microservice and inspect its
+            metrics, logs, traces, and health stats using a private API key.
         </p>
         <form class="alert-rule-form" id="external-project-form">
             <input
@@ -864,15 +864,44 @@
         </form>
         <p id="external-project-message"></p>
         <div id="external-project-key" class="project-key" hidden></div>
+
+        <div style="margin: 14px 0 6px;">
+            <label for="external-project-select" style="font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px;">Known Projects:</label>
+            <select id="external-project-select" style="min-height: 38px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border); background: rgb(23 32 51 / 90%); color: #cbd8eb; width: 100%; max-width: 450px;">
+                <option value="">-- Registered Projects --</option>
+            </select>
+        </div>
+
         <form class="alert-rule-form" id="external-project-load-form">
             <input
                 id="external-project-api-key"
                 type="password"
-                placeholder="Paste project API key"
+                placeholder="Paste project API key (mdg_...)"
                 required
             >
             <button type="submit">Load Project Data</button>
+            <button type="button" id="external-project-revoke-button" style="background: rgb(251 113 133 / 15%); border: 1px solid var(--red); color: #fecdd3; cursor: pointer;">Revoke Key</button>
         </form>
+
+        <div id="external-project-summary-cards" class="cards" style="display: none; margin: 16px 0;">
+            <div class="card">
+                <div class="label">Project Requests</div>
+                <div class="value" id="ext-total-requests">0</div>
+            </div>
+            <div class="card">
+                <div class="label">Error Count</div>
+                <div class="value" id="ext-error-count">0</div>
+            </div>
+            <div class="card">
+                <div class="label">Error Rate</div>
+                <div class="value" id="ext-error-rate">0%</div>
+            </div>
+            <div class="card">
+                <div class="label">Avg Duration</div>
+                <div class="value" id="ext-avg-duration">0ms</div>
+            </div>
+        </div>
+
         <div id="external-project-data">
             <div class="external-data-card">
                 <h3>Metrics</h3>
@@ -929,9 +958,45 @@
             return badge;
         }
 
+        async function loadExternalProjectsList() {
+            try {
+                const response = await fetch("/api/v1/projects");
+                if (!response.ok) return;
+                const projects = await response.json();
+                const select = document.getElementById("external-project-select");
+                if (!select) return;
+                select.innerHTML = '<option value="">-- Registered Projects --</option>';
+                projects.forEach((proj) => {
+                    const opt = document.createElement("option");
+                    opt.value = proj.name;
+                    opt.textContent = `${proj.name} (${proj.key_prefix || "active"} | ${proj.metric_count} metrics)`;
+                    select.appendChild(opt);
+                });
+            } catch (err) {
+                console.error("Unable to list external projects", err);
+            }
+        }
+
         async function loadExternalProjectData(apiKey) {
             const headers = {"X-API-Key": apiKey};
             const resources = ["metrics", "logs", "traces"];
+
+            try {
+                const summaryResp = await fetch("/api/v1/data/summary", {headers});
+                if (summaryResp.ok) {
+                    const summary = await summaryResp.json();
+                    const cards = document.getElementById("external-project-summary-cards");
+                    if (cards) {
+                        cards.style.display = "grid";
+                        document.getElementById("ext-total-requests").textContent = summary.total_requests;
+                        document.getElementById("ext-error-count").textContent = summary.error_count;
+                        document.getElementById("ext-error-rate").textContent = (summary.error_rate * 100).toFixed(1) + "%";
+                        document.getElementById("ext-avg-duration").textContent = summary.average_duration_ms.toFixed(1) + "ms";
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load project summary", err);
+            }
 
             const responses = await Promise.all(
                 resources.map((resource) =>
@@ -940,15 +1005,17 @@
             );
 
             if (responses.some((response) => !response.ok)) {
-                throw new Error("Unable to load external project data");
+                throw new Error("Unable to load external project data. Check that API key is valid and not revoked.");
             }
 
             const payloads = await Promise.all(
                 responses.map((response) => response.json())
             );
             resources.forEach((resource, index) => {
-                document.getElementById(`external-${resource}-data`)
-                    .textContent = JSON.stringify(payloads[index], null, 2);
+                const element = document.getElementById(`external-${resource}-data`);
+                if (element) {
+                    element.textContent = JSON.stringify(payloads[index], null, 2);
+                }
             });
         }
 
@@ -989,6 +1056,7 @@
                     ).value = project.api_key;
                     message.textContent =
                         `Project "${project.name}" created.`;
+                    await loadExternalProjectsList();
                     await loadExternalProjectData(project.api_key);
                 } catch (error) {
                     message.textContent = error.message;
@@ -1013,6 +1081,42 @@
                     message.textContent = error.message;
                 }
             });
+
+        const revokeButton = document.getElementById("external-project-revoke-button");
+        if (revokeButton) {
+            revokeButton.addEventListener("click", async () => {
+                const apiKey = document.getElementById("external-project-api-key").value.trim();
+                const message = document.getElementById("external-project-message");
+                if (!apiKey) {
+                    message.textContent = "Please enter an API key to revoke.";
+                    return;
+                }
+                if (!confirm("Are you sure you want to revoke this API key? This action is immediate and permanent.")) {
+                    return;
+                }
+                try {
+                    const response = await fetch("/api/v1/api-keys/revoke", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-API-Key": apiKey,
+                        },
+                        body: JSON.stringify({api_key: apiKey}),
+                    });
+                    if (!response.ok) {
+                        throw new Error(response.status === 404 ? "API key not found or already revoked." : "Unable to revoke API key.");
+                    }
+                    message.textContent = "API key revoked successfully. Ingestion with this key is now blocked.";
+                    document.getElementById("external-project-api-key").value = "";
+                    document.getElementById("external-project-key").hidden = true;
+                    const cards = document.getElementById("external-project-summary-cards");
+                    if (cards) cards.style.display = "none";
+                    await loadExternalProjectsList();
+                } catch (error) {
+                    message.textContent = error.message;
+                }
+            });
+        }
 
         async function loadSummary() {
             const message = document.getElementById("message");
@@ -1621,6 +1725,7 @@
         loadAlertHistory();
         loadLogs();
         loadTraces();
+        loadExternalProjectsList();
 
         setInterval(() => {
             loadSummary();
@@ -1630,6 +1735,7 @@
             loadAlertHistory();
             loadLogs();
             loadTraces();
+            loadExternalProjectsList();
         }, 10000);
     </script>
 </body>

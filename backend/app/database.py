@@ -213,6 +213,9 @@ def initialize_database() -> None:
         ON external_logs (project_id, recorded_at);
         CREATE INDEX IF NOT EXISTS external_traces_project_idx
         ON external_traces (project_id, started_at);
+
+        ALTER TABLE external_api_keys
+        ADD COLUMN IF NOT EXISTS key_prefix TEXT;
     """
     with pool.connection() as connection:
         with connection.cursor() as cursor:
@@ -230,6 +233,9 @@ def cleanup_old_telemetry(retention_days: int = 5) -> dict[str, int]:
         "logs": "DELETE FROM application_logs WHERE recorded_at < %s",
         "traces": "DELETE FROM trace_spans WHERE started_at < %s",
         "alert_history": "DELETE FROM alert_history WHERE triggered_at < %s",
+        "external_metrics": "DELETE FROM external_metrics WHERE recorded_at < %s",
+        "external_logs": "DELETE FROM external_logs WHERE recorded_at < %s",
+        "external_traces": "DELETE FROM external_traces WHERE started_at < %s",
     }
     deleted: dict[str, int] = {}
 
@@ -249,6 +255,7 @@ def _hash_api_key(api_key: str) -> str:
 
 def create_external_project(name: str) -> dict[str, str | int]:
     api_key = f"mdg_{secrets.token_urlsafe(32)}"
+    key_prefix = api_key[:12] + "..."
     with pool.connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -262,33 +269,73 @@ def create_external_project(name: str) -> dict[str, str | int]:
             project_id, project_name, created_at = cursor.fetchone()
             cursor.execute(
                 """
-                INSERT INTO external_api_keys (project_id, key_hash)
-                VALUES (%s, %s)
+                INSERT INTO external_api_keys (project_id, key_hash, key_prefix)
+                VALUES (%s, %s, %s)
                 """,
-                (project_id, _hash_api_key(api_key)),
+                (project_id, _hash_api_key(api_key), key_prefix),
             )
         connection.commit()
     return {
         "id": project_id,
         "name": project_name,
         "api_key": api_key,
+        "key_prefix": key_prefix,
         "created_at": created_at.isoformat(),
     }
 
 
-def get_external_project_id(api_key: str) -> int | None:
+def get_external_project_info(api_key: str) -> dict | None:
     with pool.connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT project_id
-                FROM external_api_keys
-                WHERE key_hash = %s AND revoked_at IS NULL
+                SELECT p.id, p.name, k.id as key_id
+                FROM external_api_keys k
+                JOIN external_projects p ON k.project_id = p.id
+                WHERE k.key_hash = %s AND k.revoked_at IS NULL
                 """,
                 (_hash_api_key(api_key),),
             )
             row = cursor.fetchone()
-    return int(row[0]) if row else None
+    if not row:
+        return None
+    return {
+        "project_id": int(row[0]),
+        "project_name": str(row[1]),
+        "key_id": int(row[2]),
+    }
+
+
+def get_external_project_id(api_key: str) -> int | None:
+    info = get_external_project_info(api_key)
+    return info["project_id"] if info else None
+
+
+def fetch_external_projects() -> list[dict]:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT p.id, p.name, p.created_at,
+                       (SELECT k.key_prefix FROM external_api_keys k
+                        WHERE k.project_id = p.id AND k.revoked_at IS NULL
+                        ORDER BY k.id DESC LIMIT 1) as key_prefix,
+                       (SELECT COUNT(*) FROM external_metrics m WHERE m.project_id = p.id) as metric_count
+                FROM external_projects p
+                ORDER BY p.created_at DESC
+                """
+            )
+            rows = cursor.fetchall()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "created_at": row[2].isoformat() if hasattr(row[2], "isoformat") else str(row[2]),
+            "key_prefix": row[3],
+            "metric_count": int(row[4]),
+        }
+        for row in rows
+    ]
 
 
 def revoke_external_api_key(api_key: str) -> bool:
@@ -304,7 +351,7 @@ def revoke_external_api_key(api_key: str) -> bool:
             )
             updated = cursor.rowcount
         connection.commit()
-    return updated == 1
+    return updated >= 1
 
 
 def ingest_external_metric(
@@ -470,6 +517,150 @@ def fetch_external_traces(project_id: int, limit: int = 100) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def ingest_external_metrics_batch(
+    project_id: int,
+    metrics: list[dict],
+) -> int:
+    if not metrics:
+        return 0
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                """
+                INSERT INTO external_metrics (
+                    project_id, service_name, method, path, status_code,
+                    duration_ms, request_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
+                    (
+                        project_id,
+                        m["service_name"],
+                        m["method"],
+                        m["path"],
+                        m["status_code"],
+                        m["duration_ms"],
+                        m.get("request_id"),
+                    )
+                    for m in metrics
+                ],
+            )
+        connection.commit()
+    return len(metrics)
+
+
+def ingest_external_logs_batch(
+    project_id: int,
+    logs: list[dict],
+) -> int:
+    if not logs:
+        return 0
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                """
+                INSERT INTO external_logs (
+                    project_id, service_name, level, message, request_id
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                [
+                    (
+                        project_id,
+                        l["service_name"],
+                        l["level"],
+                        l["message"],
+                        l.get("request_id"),
+                    )
+                    for l in logs
+                ],
+            )
+        connection.commit()
+    return len(logs)
+
+
+def ingest_external_traces_batch(
+    project_id: int,
+    traces: list[dict],
+) -> int:
+    if not traces:
+        return 0
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                """
+                INSERT INTO external_traces (
+                    project_id, request_id, service_name, operation,
+                    status_code, duration_ms, started_at, finished_at,
+                    parent_span_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                [
+                    (
+                        project_id,
+                        t["request_id"],
+                        t["service_name"],
+                        t["operation"],
+                        t["status_code"],
+                        t["duration_ms"],
+                        t["started_at"],
+                        t["finished_at"],
+                        t.get("parent_span_id"),
+                    )
+                    for t in traces
+                ],
+            )
+        connection.commit()
+    return len(traces)
+
+
+def fetch_external_metrics_summary(
+    project_id: int,
+    since_seconds: float | None = None,
+) -> dict:
+    conditions = ["project_id = %s"]
+    parameters: list[object] = [project_id]
+
+    if since_seconds is not None:
+        conditions.append("recorded_at >= %s")
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=since_seconds)
+        parameters.append(cutoff)
+
+    where_clause = " WHERE " + " AND ".join(conditions)
+
+    query = f"""
+        SELECT
+            COUNT(*),
+            COUNT(CASE WHEN status_code >= 400 THEN 1 END),
+            COALESCE(AVG(duration_ms), 0.0),
+            COALESCE(MAX(duration_ms), 0.0)
+        FROM external_metrics
+        {where_clause}
+    """
+
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, parameters)
+            row = cursor.fetchone()
+
+    total_requests = int(row[0]) if row and row[0] is not None else 0
+    error_count = int(row[1]) if row and row[1] is not None else 0
+    average_duration_ms = float(row[2]) if row and row[2] is not None else 0.0
+    max_duration_ms = float(row[3]) if row and row[3] is not None else 0.0
+    error_rate = (error_count / total_requests) if total_requests > 0 else 0.0
+
+    return {
+        "project_id": project_id,
+        "total_requests": total_requests,
+        "error_count": error_count,
+        "error_rate": round(error_rate, 4),
+        "average_duration_ms": round(average_duration_ms, 2),
+        "max_duration_ms": round(max_duration_ms, 2),
+    }
 
 
 def save_metric(

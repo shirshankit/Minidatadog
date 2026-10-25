@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class MetricResponse(BaseModel):
@@ -116,7 +116,7 @@ class ExternalProjectResponse(BaseModel):
 
 class ExternalMetricCreate(BaseModel):
     service_name: str = Field(min_length=1, max_length=120)
-    method: str = Field(min_length=1, max_length=20)
+    method: Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
     path: str = Field(min_length=1, max_length=500)
     status_code: int = Field(ge=100, le=599)
     duration_ms: float = Field(ge=0)
@@ -125,8 +125,8 @@ class ExternalMetricCreate(BaseModel):
 
 class ExternalLogCreate(BaseModel):
     service_name: str = Field(min_length=1, max_length=120)
-    level: Literal["INFO", "WARNING", "ERROR"]
-    message: str = Field(min_length=1, max_length=4000)
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    message: str = Field(min_length=1, max_length=10000)
     request_id: str | None = Field(default=None, min_length=1)
 
 
@@ -140,7 +140,57 @@ class ExternalTraceCreate(BaseModel):
     finished_at: datetime
     parent_span_id: str | None = Field(default=None, min_length=1)
 
+    @model_validator(mode="after")
+    def validate_span_timestamps(self) -> "ExternalTraceCreate":
+        if self.finished_at < self.started_at:
+            raise ValueError("finished_at must be after or equal to started_at")
+        return self
+
 
 class ExternalIngestResponse(BaseModel):
     id: int
     status: Literal["accepted"] = "accepted"
+
+
+class ExternalMetricsBatchCreate(BaseModel):
+    metrics: list[ExternalMetricCreate] = Field(min_length=1, max_length=500)
+
+
+class ExternalLogsBatchCreate(BaseModel):
+    logs: list[ExternalLogCreate] = Field(min_length=1, max_length=500)
+
+
+class ExternalTracesBatchCreate(BaseModel):
+    traces: list[ExternalTraceCreate] = Field(min_length=1, max_length=500)
+
+
+class ExternalBatchIngestResponse(BaseModel):
+    count: int
+    status: Literal["accepted"] = "accepted"
+
+
+class ExternalProjectListItem(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    key_prefix: str | None = None
+    metric_count: int = 0
+
+
+class ExternalProjectSummaryResponse(BaseModel):
+    project_id: int
+    project_name: str | None = None
+    total_requests: int
+    error_count: int
+    error_rate: float
+    average_duration_ms: float
+    max_duration_ms: float
+
+
+class RevokeApiKeyRequest(BaseModel):
+    api_key: str | None = None
+
+
+class RevokeApiKeyResponse(BaseModel):
+    status: Literal["revoked"] = "revoked"
+    message: str = "API key successfully revoked"

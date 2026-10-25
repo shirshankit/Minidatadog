@@ -31,10 +31,17 @@ from backend.app.database import (
     fetch_external_logs,
     fetch_external_metrics,
     fetch_external_traces,
+    fetch_external_metrics_summary,
+    fetch_external_projects,
     get_external_project_id,
+    get_external_project_info,
+    revoke_external_api_key,
     ingest_external_log,
     ingest_external_metric,
     ingest_external_trace,
+    ingest_external_logs_batch,
+    ingest_external_metrics_batch,
+    ingest_external_traces_batch,
     get_service_name,
     initialize_database,
     open_database_pool,
@@ -43,6 +50,7 @@ from backend.app.database import (
 
 from backend.app.metrics import record_metric
 from backend.app.notifications import notify_triggered_alerts
+from backend.app.rate_limiter import ingest_rate_limiter
 
 
 from backend.app.schemas import (
@@ -62,6 +70,14 @@ from backend.app.schemas import (
     ExternalProjectResponse,
     ExternalTraceCreate,
     ExternalIngestResponse,
+    ExternalBatchIngestResponse,
+    ExternalLogsBatchCreate,
+    ExternalMetricsBatchCreate,
+    ExternalProjectListItem,
+    ExternalProjectSummaryResponse,
+    ExternalTracesBatchCreate,
+    RevokeApiKeyRequest,
+    RevokeApiKeyResponse,
 )
 
 @asynccontextmanager
@@ -104,16 +120,27 @@ async def add_security_headers(request: Request, call_next):
         )
     return response
 
-def require_external_project(x_api_key: str | None) -> int:
+def require_external_project_info(x_api_key: str | None) -> dict:
     if not x_api_key:
         raise HTTPException(
             status_code=401,
             detail="X-API-Key header is required",
         )
-    project_id = get_external_project_id(x_api_key)
-    if project_id is None:
+    info = get_external_project_info(x_api_key)
+    if info is None:
         raise HTTPException(status_code=401, detail="Invalid or revoked API key")
-    return project_id
+    allowed, retry_after = ingest_rate_limiter.check(x_api_key)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Too many requests.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    return info
+
+
+def require_external_project(x_api_key: str | None) -> int:
+    return require_external_project_info(x_api_key)["project_id"]
 
 
 @app.middleware("http")
@@ -215,6 +242,37 @@ def create_external_project_endpoint(
     return ExternalProjectResponse(**create_external_project(project.name))
 
 
+@app.get(
+    "/api/v1/projects",
+    response_model=list[ExternalProjectListItem],
+)
+def list_external_projects_endpoint() -> list[ExternalProjectListItem]:
+    return [ExternalProjectListItem(**p) for p in fetch_external_projects()]
+
+
+@app.post(
+    "/api/v1/api-keys/revoke",
+    response_model=RevokeApiKeyResponse,
+)
+def revoke_api_key_endpoint(
+    payload: RevokeApiKeyRequest | None = None,
+    x_api_key: str | None = Header(default=None),
+) -> RevokeApiKeyResponse:
+    key_to_revoke = (payload.api_key if payload and payload.api_key else None) or x_api_key
+    if not key_to_revoke:
+        raise HTTPException(
+            status_code=400,
+            detail="API key is required to revoke",
+        )
+    revoked = revoke_external_api_key(key_to_revoke)
+    if not revoked:
+        raise HTTPException(
+            status_code=404,
+            detail="API key not found or already revoked",
+        )
+    return RevokeApiKeyResponse(status="revoked", message="API key successfully revoked")
+
+
 @app.post(
     "/api/v1/ingest/metrics",
     response_model=ExternalIngestResponse,
@@ -238,6 +296,22 @@ def ingest_metric_endpoint(
 
 
 @app.post(
+    "/api/v1/ingest/metrics/batch",
+    response_model=ExternalBatchIngestResponse,
+)
+def ingest_metrics_batch_endpoint(
+    payload: ExternalMetricsBatchCreate,
+    x_api_key: str | None = Header(default=None),
+) -> ExternalBatchIngestResponse:
+    project_id = require_external_project(x_api_key)
+    count = ingest_external_metrics_batch(
+        project_id=project_id,
+        metrics=[m.model_dump() for m in payload.metrics],
+    )
+    return ExternalBatchIngestResponse(count=count, status="accepted")
+
+
+@app.post(
     "/api/v1/ingest/logs",
     response_model=ExternalIngestResponse,
 )
@@ -255,6 +329,22 @@ def ingest_log_endpoint(
             request_id=log.request_id,
         )
     )
+
+
+@app.post(
+    "/api/v1/ingest/logs/batch",
+    response_model=ExternalBatchIngestResponse,
+)
+def ingest_logs_batch_endpoint(
+    payload: ExternalLogsBatchCreate,
+    x_api_key: str | None = Header(default=None),
+) -> ExternalBatchIngestResponse:
+    project_id = require_external_project(x_api_key)
+    count = ingest_external_logs_batch(
+        project_id=project_id,
+        logs=[l.model_dump() for l in payload.logs],
+    )
+    return ExternalBatchIngestResponse(count=count, status="accepted")
 
 
 @app.post(
@@ -286,6 +376,22 @@ def ingest_trace_endpoint(
     )
 
 
+@app.post(
+    "/api/v1/ingest/traces/batch",
+    response_model=ExternalBatchIngestResponse,
+)
+def ingest_traces_batch_endpoint(
+    payload: ExternalTracesBatchCreate,
+    x_api_key: str | None = Header(default=None),
+) -> ExternalBatchIngestResponse:
+    project_id = require_external_project(x_api_key)
+    count = ingest_external_traces_batch(
+        project_id=project_id,
+        traces=[t.model_dump() for t in payload.traces],
+    )
+    return ExternalBatchIngestResponse(count=count, status="accepted")
+
+
 @app.get("/api/v1/data/metrics")
 def list_external_metrics(
     limit: int = Query(default=100, ge=1, le=500),
@@ -308,6 +414,23 @@ def list_external_traces(
     x_api_key: str | None = Header(default=None),
 ) -> list[dict]:
     return fetch_external_traces(require_external_project(x_api_key), limit)
+
+
+@app.get(
+    "/api/v1/data/summary",
+    response_model=ExternalProjectSummaryResponse,
+)
+def get_external_project_summary(
+    since_seconds: float | None = Query(default=None, gt=0),
+    x_api_key: str | None = Header(default=None),
+) -> ExternalProjectSummaryResponse:
+    info = require_external_project_info(x_api_key)
+    summary = fetch_external_metrics_summary(
+        project_id=info["project_id"],
+        since_seconds=since_seconds,
+    )
+    summary["project_name"] = info.get("project_name")
+    return ExternalProjectSummaryResponse(**summary)
 
 @app.post(
     "/alerts/rules",

@@ -64,12 +64,18 @@ over HTTPS.
 | `GET /dashboard` | Observability dashboard |
 | `GET /test/unique` | Create a uniquely identified remote test event |
 | `POST /api/v1/projects` | Create an external application project and API key |
+| `GET /api/v1/projects` | List registered projects with key prefixes |
+| `POST /api/v1/api-keys/revoke` | Revoke a compromised or obsolete project API key |
 | `POST /api/v1/ingest/metrics` | Ingest a metric from an external application |
+| `POST /api/v1/ingest/metrics/batch` | Ingest a batch of metrics |
 | `POST /api/v1/ingest/logs` | Ingest a log from an external application |
+| `POST /api/v1/ingest/logs/batch` | Ingest a batch of structured logs |
 | `POST /api/v1/ingest/traces` | Ingest a trace span from an external application |
+| `POST /api/v1/ingest/traces/batch` | Ingest a batch of trace spans |
 | `GET /api/v1/data/metrics` | Read the authenticated project's metrics |
 | `GET /api/v1/data/logs` | Read the authenticated project's logs |
 | `GET /api/v1/data/traces` | Read the authenticated project's traces |
+| `GET /api/v1/data/summary` | Read aggregated project metrics summary |
 | `GET /metrics` | Request metrics with filters and pagination |
 | `GET /logs` | Structured logs with filters and pagination |
 | `GET /traces` | Request trace spans with filters and pagination |
@@ -90,18 +96,15 @@ and trace with its own `X-Request-ID`.
 
 ### External application monitoring
 
-Create a project from an authenticated owner account:
+Create a new project:
 
 ```bash
-curl -u "$MINIDATADOG_USERNAME:$MINIDATADOG_PASSWORD" \
-  -X POST https://minidatadog.onrender.com/api/v1/projects \
+curl -X POST https://minidatadog.onrender.com/api/v1/projects \
   -H "Content-Type: application/json" \
   -d '{"name":"friend-shop"}'
 ```
 
-The response contains an API key. Store it securely; it is only returned when
-the project is created. External applications send the key in the
-`X-API-Key` header:
+The response contains a secure API key (`mdg_...`). Store it securely; it is only returned once when the project is created. External applications authenticate by passing this key in the `X-API-Key` header:
 
 ```bash
 curl -X POST https://minidatadog.onrender.com/api/v1/ingest/metrics \
@@ -117,9 +120,26 @@ curl -X POST https://minidatadog.onrender.com/api/v1/ingest/metrics \
   }'
 ```
 
-The key scopes every ingestion and read request to one project, so one
-application cannot read another application's telemetry. API keys are stored
-as hashes, not plaintext.
+Batch ingestion is also supported via `POST /api/v1/ingest/metrics/batch`, `POST /api/v1/ingest/logs/batch`, and `POST /api/v1/ingest/traces/batch`.
+
+The key scopes every ingestion and read request to one project, ensuring strong multi-tenant data isolation. Keys are stored strictly as SHA-256 hashes. Ingestion endpoints enforce rate limiting (120 requests/minute per key), returning `429 Too Many Requests` with a `Retry-After` header when limits are exceeded.
+
+If a key is compromised, it can be revoked immediately via:
+
+```bash
+curl -X POST https://minidatadog.onrender.com/api/v1/api-keys/revoke \
+  -H "X-API-Key: mdg_your_project_key"
+```
+
+Once revoked, all subsequent ingestion or queries using that key are rejected with `401 Unauthorized`.
+
+### Integration Examples and SDK
+
+Executable examples and a lightweight Python client are available in the [`examples/`](./examples) directory:
+
+- [`examples/minidatadog_client.py`](./examples/minidatadog_client.py): Python client SDK (`MiniDatadogClient`).
+- [`examples/fastapi_integration.py`](./examples/fastapi_integration.py): Sample FastAPI application demonstrating automatic telemetry middleware.
+- [`examples/curl_examples.sh`](./examples/curl_examples.sh): Shell script demonstrating project creation, single & batch ingestion, querying, and revocation.
 
 Logs submitted through `POST /logs` may include `request_id` to correlate an
 application log with an existing request trace.

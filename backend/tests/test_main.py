@@ -10,6 +10,7 @@ from backend.app.notifications import (
     clear_notification_state,
     notify_triggered_alerts,
 )
+from backend.app.rate_limiter import ingest_rate_limiter
 
 
 @pytest.fixture(scope="module")
@@ -188,6 +189,300 @@ def test_external_ingestion_requires_a_valid_api_key(
     )
 
     assert response.status_code == 401
+
+
+def test_external_project_listing(client: TestClient) -> None:
+    proj_resp = client.post(
+        "/api/v1/projects",
+        json={"name": "listing-test-project"},
+    )
+    assert proj_resp.status_code == 200
+
+    list_resp = client.get("/api/v1/projects")
+    assert list_resp.status_code == 200
+    projects = list_resp.json()
+    assert isinstance(projects, list)
+    matching = [p for p in projects if p["name"] == "listing-test-project"]
+    assert len(matching) >= 1
+    assert "key_prefix" in matching[0]
+    assert matching[0]["key_prefix"].startswith("mdg_")
+
+
+def test_external_project_batch_ingestion(client: TestClient) -> None:
+    proj_resp = client.post(
+        "/api/v1/projects",
+        json={"name": "batch-test-service"},
+    )
+    assert proj_resp.status_code == 200
+    api_key = proj_resp.json()["api_key"]
+    headers = {"X-API-Key": api_key}
+
+    # Batch Metrics
+    metrics_resp = client.post(
+        "/api/v1/ingest/metrics/batch",
+        headers=headers,
+        json={
+            "metrics": [
+                {
+                    "service_name": "batch-service",
+                    "method": "GET",
+                    "path": "/users",
+                    "status_code": 200,
+                    "duration_ms": 15.0,
+                    "request_id": "batch-req-1",
+                },
+                {
+                    "service_name": "batch-service",
+                    "method": "POST",
+                    "path": "/users",
+                    "status_code": 500,
+                    "duration_ms": 120.0,
+                    "request_id": "batch-req-2",
+                },
+            ]
+        },
+    )
+    assert metrics_resp.status_code == 200
+    assert metrics_resp.json() == {"count": 2, "status": "accepted"}
+
+    # Batch Logs
+    logs_resp = client.post(
+        "/api/v1/ingest/logs/batch",
+        headers=headers,
+        json={
+            "logs": [
+                {
+                    "service_name": "batch-service",
+                    "level": "INFO",
+                    "message": "User lookup succeeded",
+                    "request_id": "batch-req-1",
+                },
+                {
+                    "service_name": "batch-service",
+                    "level": "ERROR",
+                    "message": "User creation failed",
+                    "request_id": "batch-req-2",
+                },
+            ]
+        },
+    )
+    assert logs_resp.status_code == 200
+    assert logs_resp.json() == {"count": 2, "status": "accepted"}
+
+    # Batch Traces
+    traces_resp = client.post(
+        "/api/v1/ingest/traces/batch",
+        headers=headers,
+        json={
+            "traces": [
+                {
+                    "request_id": "batch-req-1",
+                    "service_name": "batch-service",
+                    "operation": "GET /users",
+                    "status_code": 200,
+                    "duration_ms": 15.0,
+                    "started_at": "2026-01-01T10:00:00Z",
+                    "finished_at": "2026-01-01T10:00:00.015000Z",
+                },
+                {
+                    "request_id": "batch-req-2",
+                    "service_name": "batch-service",
+                    "operation": "POST /users",
+                    "status_code": 500,
+                    "duration_ms": 120.0,
+                    "started_at": "2026-01-01T10:00:01Z",
+                    "finished_at": "2026-01-01T10:00:01.120000Z",
+                },
+            ]
+        },
+    )
+    assert traces_resp.status_code == 200
+    assert traces_resp.json() == {"count": 2, "status": "accepted"}
+
+    # Verify querying
+    saved_metrics = client.get("/api/v1/data/metrics", headers=headers).json()
+    assert len(saved_metrics) >= 2
+
+    saved_logs = client.get("/api/v1/data/logs", headers=headers).json()
+    assert len(saved_logs) >= 2
+
+    saved_traces = client.get("/api/v1/data/traces", headers=headers).json()
+    assert len(saved_traces) >= 2
+
+
+def test_external_project_summary(client: TestClient) -> None:
+    proj_resp = client.post(
+        "/api/v1/projects",
+        json={"name": "summary-test-project"},
+    )
+    api_key = proj_resp.json()["api_key"]
+    headers = {"X-API-Key": api_key}
+
+    # Ingest 1 success and 1 error
+    client.post(
+        "/api/v1/ingest/metrics",
+        headers=headers,
+        json={
+            "service_name": "summary-svc",
+            "method": "GET",
+            "path": "/ok",
+            "status_code": 200,
+            "duration_ms": 20.0,
+        },
+    )
+    client.post(
+        "/api/v1/ingest/metrics",
+        headers=headers,
+        json={
+            "service_name": "summary-svc",
+            "method": "POST",
+            "path": "/err",
+            "status_code": 500,
+            "duration_ms": 80.0,
+        },
+    )
+
+    summary_resp = client.get("/api/v1/data/summary", headers=headers)
+    assert summary_resp.status_code == 200
+    summary = summary_resp.json()
+    assert summary["project_name"] == "summary-test-project"
+    assert summary["total_requests"] == 2
+    assert summary["error_count"] == 1
+    assert summary["error_rate"] == 0.5
+    assert summary["average_duration_ms"] == 50.0
+    assert summary["max_duration_ms"] == 80.0
+
+
+def test_external_api_key_revocation(client: TestClient) -> None:
+    proj_resp = client.post(
+        "/api/v1/projects",
+        json={"name": "revocation-test-project"},
+    )
+    api_key = proj_resp.json()["api_key"]
+    headers = {"X-API-Key": api_key}
+
+    # Key is valid
+    ok_resp = client.get("/api/v1/data/metrics", headers=headers)
+    assert ok_resp.status_code == 200
+
+    # Revoke key via endpoint
+    revoke_resp = client.post(
+        "/api/v1/api-keys/revoke",
+        headers=headers,
+        json={"api_key": api_key},
+    )
+    assert revoke_resp.status_code == 200
+    assert revoke_resp.json()["status"] == "revoked"
+
+    # Subsequent request with revoked key must fail with 401
+    rejected_resp = client.get("/api/v1/data/metrics", headers=headers)
+    assert rejected_resp.status_code == 401
+
+    # Revoking already revoked key returns 404
+    second_revoke = client.post(
+        "/api/v1/api-keys/revoke",
+        json={"api_key": api_key},
+    )
+    assert second_revoke.status_code == 404
+
+
+def test_external_ingestion_payload_validation(client: TestClient) -> None:
+    proj_resp = client.post(
+        "/api/v1/projects",
+        json={"name": "validation-test-project"},
+    )
+    api_key = proj_resp.json()["api_key"]
+    headers = {"X-API-Key": api_key}
+
+    # Invalid HTTP method
+    invalid_method = client.post(
+        "/api/v1/ingest/metrics",
+        headers=headers,
+        json={
+            "service_name": "test",
+            "method": "INVALID",
+            "path": "/",
+            "status_code": 200,
+            "duration_ms": 10.0,
+        },
+    )
+    assert invalid_method.status_code == 422
+
+    # Negative duration
+    negative_duration = client.post(
+        "/api/v1/ingest/metrics",
+        headers=headers,
+        json={
+            "service_name": "test",
+            "method": "GET",
+            "path": "/",
+            "status_code": 200,
+            "duration_ms": -5.0,
+        },
+    )
+    assert negative_duration.status_code == 422
+
+    # Invalid log level
+    invalid_level = client.post(
+        "/api/v1/ingest/logs",
+        headers=headers,
+        json={
+            "service_name": "test",
+            "level": "TRACE",
+            "message": "some message",
+        },
+    )
+    assert invalid_level.status_code == 422
+
+    # Finished_at before started_at
+    invalid_trace = client.post(
+        "/api/v1/ingest/traces",
+        headers=headers,
+        json={
+            "request_id": "req-1",
+            "service_name": "test",
+            "operation": "test",
+            "status_code": 200,
+            "duration_ms": 10.0,
+            "started_at": "2026-01-01T12:00:05Z",
+            "finished_at": "2026-01-01T12:00:00Z",
+        },
+    )
+    assert invalid_trace.status_code == 422
+
+
+def test_external_ingestion_rate_limiting(client: TestClient) -> None:
+    proj_resp = client.post(
+        "/api/v1/projects",
+        json={"name": "rate-limit-test-project"},
+    )
+    api_key = proj_resp.json()["api_key"]
+    headers = {"X-API-Key": api_key}
+
+    # Reset limiter for clean test
+    ingest_rate_limiter.reset(api_key)
+
+    # Exceed limit using small custom limit check
+    for _ in range(5):
+        client.post(
+            "/api/v1/ingest/metrics",
+            headers=headers,
+            json={
+                "service_name": "test",
+                "method": "GET",
+                "path": "/ping",
+                "status_code": 200,
+                "duration_ms": 1.0,
+            },
+        )
+
+    # Now verify rate limiter check directly rejects when exhausted
+    allowed, retry_after = ingest_rate_limiter.check(api_key, limit=5)
+    assert allowed is False
+    assert retry_after >= 1
+
+    # Cleanup
+    ingest_rate_limiter.reset(api_key)
 
 
 def test_request_includes_process_time(client: TestClient) -> None:
