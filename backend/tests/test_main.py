@@ -301,6 +301,8 @@ def test_dashboard_page_loads(client: TestClient) -> None:
     assert 'id="metrics-previous"' in response.text
     assert 'id="logs-next"' in response.text
     assert 'id="traces-page"' in response.text
+    assert 'id="alert-rule-form"' in response.text
+    assert 'id="alert-rules-container"' in response.text
 
 def test_create_alert_rule(client: TestClient) -> None:
     response = client.post(

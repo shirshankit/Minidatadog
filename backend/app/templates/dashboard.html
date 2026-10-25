@@ -80,6 +80,24 @@
             color: #991b1b;
         }
 
+        .alert-rule-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            margin: 12px 0;
+        }
+
+        .alert-rule-form input,
+        .alert-rule-form select,
+        .alert-rule-form button {
+            padding: 7px;
+        }
+
+        #alert-rule-message {
+            color: #166534;
+        }
+
         .log-level {
             font-weight: bold;
         }
@@ -196,6 +214,42 @@
         <div id="alerts-container">
             <p>No active alerts.</p>
         </div>
+        <h3>Alert Rules</h3>
+        <form class="alert-rule-form" id="alert-rule-form">
+            <input
+                id="alert-rule-service"
+                type="text"
+                placeholder="Service name"
+                required
+            >
+            <select id="alert-rule-metric">
+                <option value="error_rate">Error rate</option>
+                <option value="error_count">Error count</option>
+                <option value="total_requests">Total requests</option>
+                <option value="average_duration_ms">Average duration</option>
+                <option value="max_duration_ms">Maximum duration</option>
+            </select>
+            <select id="alert-rule-operator">
+                <option value=">">&gt;</option>
+                <option value=">=">&gt;=</option>
+                <option value="<">&lt;</option>
+                <option value="<=">&lt;=</option>
+                <option value="==">=</option>
+            </select>
+            <input
+                id="alert-rule-threshold"
+                type="number"
+                min="0"
+                step="any"
+                placeholder="Threshold"
+                required
+            >
+            <button type="submit">Create Rule</button>
+        </form>
+        <div id="alert-rules-container">
+            <p>No alert rules configured.</p>
+        </div>
+        <p id="alert-rule-message"></p>
     </section>
 
     <h2>Request Duration Chart</h2>
@@ -648,9 +702,81 @@
                 alertsContainer.appendChild(alertElement);
             });
         }
+
+        async function loadAlertRules() {
+            const response = await fetch("/alerts/rules");
+
+            if (!response.ok) {
+                throw new Error("Unable to load alert rules");
+            }
+
+            const rules = await response.json();
+            const rulesContainer = document.getElementById(
+                "alert-rules-container"
+            );
+            rulesContainer.innerHTML = "";
+
+            if (rules.length === 0) {
+                rulesContainer.innerHTML = "<p>No alert rules configured.</p>";
+                return;
+            }
+
+            rules.forEach((rule) => {
+                const ruleElement = document.createElement("div");
+                ruleElement.className = "alert";
+                ruleElement.style.borderLeftColor = "#2563eb";
+                ruleElement.style.background = "#eff6ff";
+                ruleElement.style.color = "#1e40af";
+                ruleElement.textContent =
+                    `${rule.service_name}: ${rule.metric} ` +
+                    `${rule.operator} ${rule.threshold}`;
+                rulesContainer.appendChild(ruleElement);
+            });
+        }
+
+        document
+            .getElementById("alert-rule-form")
+            .addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const message = document.getElementById("alert-rule-message");
+                const payload = {
+                    service_name: document
+                        .getElementById("alert-rule-service")
+                        .value
+                        .trim(),
+                    metric: document.getElementById("alert-rule-metric").value,
+                    operator: document
+                        .getElementById("alert-rule-operator")
+                        .value,
+                    threshold: Number(
+                        document.getElementById("alert-rule-threshold").value
+                    ),
+                };
+
+                try {
+                    const response = await fetch("/alerts/rules", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify(payload),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error("Unable to create alert rule");
+                    }
+
+                    document.getElementById("alert-rule-form").reset();
+                    message.textContent = "Alert rule created.";
+                    await loadAlertRules();
+                    await loadAlerts();
+                } catch (error) {
+                    message.textContent = error.message;
+                }
+            });
+
         loadSummary();
         loadMetrics();
         loadAlerts();
+        loadAlertRules();
         loadLogs();
         loadTraces();
 
@@ -658,6 +784,7 @@
             loadSummary();
             loadMetrics();
             loadAlerts();
+            loadAlertRules();
             loadLogs();
             loadTraces();
         }, 10000);
