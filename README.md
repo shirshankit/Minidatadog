@@ -28,7 +28,7 @@ The application reads these environment variables:
 | --- | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection string | required |
 | `SERVICE_NAME` | Service name attached to telemetry | required |
-| `TELEMETRY_RETENTION_DAYS` | Number of days to retain metrics, logs, and traces | `30` |
+| `TELEMETRY_RETENTION_DAYS` | Number of days to retain metrics, logs, and traces | `5` |
 | `MINIDATADOG_USERNAME` | Optional Basic Authentication username | disabled |
 | `MINIDATADOG_PASSWORD` | Optional Basic Authentication password | disabled |
 | `FORCE_HTTPS` | Adds HSTS headers when set to `true` behind HTTPS | disabled |

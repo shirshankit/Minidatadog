@@ -51,7 +51,7 @@ from backend.app.schemas import (
 async def lifespan(_app: FastAPI):
     open_database_pool()
     initialize_database()
-    retention_days = int(os.getenv("TELEMETRY_RETENTION_DAYS", "30"))
+    retention_days = int(os.getenv("TELEMETRY_RETENTION_DAYS", "5"))
     cleanup_old_telemetry(retention_days=retention_days)
 
     yield

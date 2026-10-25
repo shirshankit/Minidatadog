@@ -135,7 +135,7 @@ def initialize_database() -> None:
         connection.commit()
 
 
-def cleanup_old_telemetry(retention_days: int = 30) -> dict[str, int]:
+def cleanup_old_telemetry(retention_days: int = 5) -> dict[str, int]:
     if retention_days < 1:
         raise ValueError("retention_days must be at least 1")
 

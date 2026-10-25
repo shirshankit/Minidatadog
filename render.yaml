@@ -12,7 +12,7 @@ services:
       - key: SERVICE_NAME
         value: demo-service
       - key: TELEMETRY_RETENTION_DAYS
-        value: "30"
+        value: "5"
       - key: FORCE_HTTPS
         value: "true"
       - key: MINIDATADOG_USERNAME
