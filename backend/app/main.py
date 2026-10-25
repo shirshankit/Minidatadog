@@ -89,6 +89,9 @@ async def add_security_headers(request: Request, call_next):
 
 @app.middleware("http")
 async def require_basic_auth(request: Request, call_next):
+    if request.url.path == "/health":
+        return await call_next(request)
+
     username = os.getenv("MINIDATADOG_USERNAME")
     password = os.getenv("MINIDATADOG_PASSWORD")
 

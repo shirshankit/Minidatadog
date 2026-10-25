@@ -48,6 +48,23 @@ def test_authentication_is_disabled_without_credentials(
     assert response.status_code == 200
 
 
+def test_health_check_is_public_when_authentication_is_enabled(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MINIDATADOG_USERNAME", "admin")
+    monkeypatch.setenv("MINIDATADOG_PASSWORD", "test-password")
+
+    health_response = client.get("/health")
+    products_response = client.get("/products")
+
+    assert health_response.status_code == 200
+    assert products_response.status_code == 401
+
+    monkeypatch.delenv("MINIDATADOG_USERNAME")
+    monkeypatch.delenv("MINIDATADOG_PASSWORD")
+
+
 def test_list_products(client: TestClient) -> None:
     response = client.get("/products")
 
