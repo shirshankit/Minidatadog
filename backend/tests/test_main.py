@@ -107,10 +107,21 @@ def test_request_creates_trace_span(client: TestClient) -> None:
 
     assert traces_response.status_code == 200
     traces = traces_response.json()
-    assert len(traces) == 1
-    assert traces[0]["request_id"] == request_id
-    assert traces[0]["operation"] == "GET /products"
-    assert traces[0]["status_code"] == 200
+    assert len(traces) == 2
+    root_trace = next(
+        trace for trace in traces if trace["parent_span_id"] is None
+    )
+    assert root_trace["request_id"] == request_id
+    assert root_trace["operation"] == "GET /products"
+    assert root_trace["status_code"] == 200
+    assert any(
+        trace["parent_span_id"] is None
+        for trace in traces
+    )
+    assert any(
+        trace["parent_span_id"] is not None
+        for trace in traces
+    )
 
 
 def test_traces_can_filter_by_service(client: TestClient) -> None:

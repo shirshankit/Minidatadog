@@ -74,7 +74,9 @@ Alert history records each alert lifecycle once. An event is marked
 condition returns to normal.
 
 Trace rows include a request ID. Paste that ID into the dashboard's
-**Trace Details** search to inspect the matching request span.
+**Trace Details** search to inspect the matching request timeline. Each
+timeline has a root HTTP span and a child request-processing span linked by
+`parent_span_id`.
 
 Alert rules can be created and disabled from the dashboard. To test an alert,
 create a rule for `demo-service`, trigger `/simulate-error`, and refresh the

@@ -185,7 +185,7 @@ async def measure_request_time(request: Request, call_next):
     )
 
     finished_at = datetime.now(timezone.utc)
-    create_trace_span(
+    root_span = create_trace_span(
         request_id=request_id,
         service_name=get_service_name(),
         operation=f"{request.method} {request.url.path}",
@@ -193,6 +193,16 @@ async def measure_request_time(request: Request, call_next):
         duration_ms=duration_ms,
         started_at=started_at,
         finished_at=finished_at,
+    )
+    create_trace_span(
+        request_id=request_id,
+        service_name=get_service_name(),
+        operation="request.processing",
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+        started_at=started_at,
+        finished_at=finished_at,
+        parent_span_id=int(root_span["id"]),
     )
 
     response.headers["X-Process-Time-ms"] = f"{duration_ms:.2f}"

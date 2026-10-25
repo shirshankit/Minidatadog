@@ -118,6 +118,9 @@ def initialize_database() -> None:
             started_at TIMESTAMPTZ NOT NULL,
             finished_at TIMESTAMPTZ NOT NULL
         );
+        ALTER TABLE trace_spans
+        ADD COLUMN IF NOT EXISTS parent_span_id BIGINT
+        REFERENCES trace_spans(id);
 
         CREATE INDEX IF NOT EXISTS request_metrics_recorded_at_idx
         ON request_metrics (recorded_at);
@@ -730,6 +733,7 @@ def create_trace_span(
     duration_ms: float,
     started_at: datetime,
     finished_at: datetime,
+    parent_span_id: int | None = None,
 ) -> dict[str, str | int | float]:
     query = """
         INSERT INTO trace_spans (
@@ -740,10 +744,12 @@ def create_trace_span(
             duration_ms,
             started_at,
             finished_at
+            , parent_span_id
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id, request_id, service_name, operation,
-                  status_code, duration_ms, started_at, finished_at
+                  status_code, duration_ms, started_at, finished_at,
+                  parent_span_id
     """
 
     with pool.connection() as connection:
@@ -758,6 +764,7 @@ def create_trace_span(
                     duration_ms,
                     started_at,
                     finished_at,
+                    parent_span_id,
                 ),
             )
             row = cursor.fetchone()
@@ -772,6 +779,7 @@ def create_trace_span(
         "duration_ms": float(row[5]),
         "started_at": row[6].isoformat(),
         "finished_at": row[7].isoformat(),
+        "parent_span_id": row[8],
     }
 
 
@@ -783,7 +791,8 @@ def fetch_trace_spans(
 ) -> list[dict[str, str | int | float]]:
     query = """
         SELECT id, request_id, service_name, operation,
-               status_code, duration_ms, started_at, finished_at
+               status_code, duration_ms, started_at, finished_at,
+               parent_span_id
         FROM trace_spans
     """
     conditions: list[str] = []
@@ -818,6 +827,7 @@ def fetch_trace_spans(
             "duration_ms": float(row[5]),
             "started_at": row[6].isoformat(),
             "finished_at": row[7].isoformat(),
+            "parent_span_id": row[8],
         }
         for row in rows
     ]

@@ -690,7 +690,11 @@
                     traces.forEach((trace) => {
                         const detail = document.createElement("div");
                         detail.className = "alert";
+                        if (trace.parent_span_id !== null) {
+                            detail.style.marginLeft = "24px";
+                        }
                         detail.textContent =
+                            `${trace.parent_span_id !== null ? "↳ " : ""}` +
                             `${trace.operation} — ${trace.status_code} — ` +
                             `${trace.duration_ms.toFixed(2)} ms — ` +
                             `${new Date(

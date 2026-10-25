@@ -88,3 +88,4 @@ class TraceSpanResponse(BaseModel):
     duration_ms: float
     started_at: str
     finished_at: str
+    parent_span_id: int | None = None
