@@ -419,6 +419,9 @@ def test_alert_webhook_notification_respects_cooldown(
     assert notify_triggered_alerts([alert]) == 1
     assert notify_triggered_alerts([alert]) == 0
     assert len(requests) == 1
+    request_body = requests[0][0].data.decode("utf-8")
+    assert '"content": "MiniDatadog alert:' in request_body
+    assert '"text":' not in request_body
     clear_notification_state()
 def test_create_alert_rule_rejects_invalid_metric(
     client: TestClient,

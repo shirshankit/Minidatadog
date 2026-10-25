@@ -40,7 +40,7 @@ def notify_triggered_alerts(
 
         payload = json.dumps(
             {
-                "text": (
+                "content": (
                     f"MiniDatadog alert: {alert['service_name']} "
                     f"{alert['metric']} {alert['operator']} "
                     f"{alert['threshold']} "
