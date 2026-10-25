@@ -73,6 +73,9 @@ Alert history records each alert lifecycle once. An event is marked
 `TRIGGERED` when its condition first becomes true and `RESOLVED` when the
 condition returns to normal.
 
+Trace rows include a request ID. Paste that ID into the dashboard's
+**Trace Details** search to inspect the matching request span.
+
 Alert rules can be created and disabled from the dashboard. To test an alert,
 create a rule for `demo-service`, trigger `/simulate-error`, and refresh the
 dashboard. To test resolution, use a threshold that can move from true to

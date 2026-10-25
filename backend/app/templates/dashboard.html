@@ -323,6 +323,19 @@
         <span class="page-label" id="traces-page">Page 1</span>
         <button id="traces-next" type="button">Next</button>
     </div>
+    <h3>Trace Details</h3>
+    <form class="alert-rule-form" id="trace-search-form">
+        <input
+            id="trace-request-id"
+            type="text"
+            placeholder="Request ID"
+            required
+        >
+        <button type="submit">Find Trace</button>
+    </form>
+    <div id="trace-details-container">
+        <p>Enter a request ID to inspect its trace.</p>
+    </div>
 
     <script>
         const pageSize = 10;
@@ -645,6 +658,50 @@
                 Number(response.headers.get("X-Total-Count") || traces.length)
             );
         }
+
+        document
+            .getElementById("trace-search-form")
+            .addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const requestId = document
+                    .getElementById("trace-request-id")
+                    .value
+                    .trim();
+                const detailsContainer = document.getElementById(
+                    "trace-details-container"
+                );
+
+                try {
+                    const response = await fetch(
+                        `/traces?request_id=${encodeURIComponent(requestId)}`
+                    );
+                    if (!response.ok) {
+                        throw new Error("Unable to load trace details");
+                    }
+                    const traces = await response.json();
+                    detailsContainer.innerHTML = "";
+
+                    if (traces.length === 0) {
+                        detailsContainer.innerHTML =
+                            "<p>No trace found for that request ID.</p>";
+                        return;
+                    }
+
+                    traces.forEach((trace) => {
+                        const detail = document.createElement("div");
+                        detail.className = "alert";
+                        detail.textContent =
+                            `${trace.operation} — ${trace.status_code} — ` +
+                            `${trace.duration_ms.toFixed(2)} ms — ` +
+                            `${new Date(
+                                trace.started_at
+                            ).toLocaleString()}`;
+                        detailsContainer.appendChild(detail);
+                    });
+                } catch (error) {
+                    detailsContainer.textContent = error.message;
+                }
+            });
 
         document
             .getElementById("filter-button")

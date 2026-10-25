@@ -308,6 +308,23 @@ def test_dashboard_page_loads(client: TestClient) -> None:
     assert 'id="alert-rule-form"' in response.text
     assert 'id="alert-rules-container"' in response.text
     assert 'id="alert-history-container"' in response.text
+    assert 'id="trace-search-form"' in response.text
+    assert 'id="trace-details-container"' in response.text
+
+
+def test_trace_details_can_be_found_by_request_id(
+    client: TestClient,
+) -> None:
+    response = client.get("/products")
+    request_id = response.headers["X-Request-ID"]
+
+    trace_response = client.get(
+        "/traces",
+        params={"request_id": request_id},
+    )
+
+    assert trace_response.status_code == 200
+    assert trace_response.json()[0]["request_id"] == request_id
 
 def test_create_alert_rule(client: TestClient) -> None:
     response = client.post(
