@@ -684,6 +684,23 @@ def test_filter_application_logs_by_level(
     assert all(log["level"] == "WARNING" for log in logs)
 
 
+def test_application_logs_can_filter_by_request_id(
+    client: TestClient,
+) -> None:
+    response = client.get("/products")
+    request_id = response.headers["X-Request-ID"]
+
+    logs_response = client.get(
+        "/logs",
+        params={"request_id": request_id},
+    )
+
+    assert logs_response.status_code == 200
+    logs = logs_response.json()
+    assert logs
+    assert all(log["request_id"] == request_id for log in logs)
+
+
 def test_logs_support_pagination(client: TestClient) -> None:
     response = client.get(
         "/logs",

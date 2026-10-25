@@ -610,7 +610,23 @@
 
                     values.forEach((value, index) => {
                         const cell = document.createElement("td");
-                        cell.textContent = value;
+                        if (index === 4 && log.request_id) {
+                            const link = document.createElement("a");
+                            link.href = "#trace-details-container";
+                            link.textContent = value;
+                            link.addEventListener("click", async (event) => {
+                                event.preventDefault();
+                                document.getElementById(
+                                    "trace-request-id"
+                                ).value = log.request_id;
+                                document.getElementById(
+                                    "trace-search-form"
+                                ).requestSubmit();
+                            });
+                            cell.appendChild(link);
+                        } else {
+                            cell.textContent = value;
+                        }
 
                         if (index === 1) {
                             cell.classList.add("log-level");

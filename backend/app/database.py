@@ -658,6 +658,7 @@ def create_application_log(
 def fetch_application_logs(
     service_name: str | None = None,
     level: str | None = None,
+    request_id: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict[str, str | int | None]]:
@@ -677,6 +678,10 @@ def fetch_application_logs(
     if level is not None:
         conditions.append("level = %s")
         parameters.append(level)
+
+    if request_id is not None:
+        conditions.append("request_id = %s")
+        parameters.append(request_id)
 
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
@@ -705,6 +710,7 @@ def fetch_application_logs(
 def count_application_logs(
     service_name: str | None = None,
     level: str | None = None,
+    request_id: str | None = None,
 ) -> int:
     query = "SELECT COUNT(*) FROM application_logs"
     conditions: list[str] = []
@@ -716,6 +722,9 @@ def count_application_logs(
     if level is not None:
         conditions.append("level = %s")
         parameters.append(level)
+    if request_id is not None:
+        conditions.append("request_id = %s")
+        parameters.append(request_id)
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
 

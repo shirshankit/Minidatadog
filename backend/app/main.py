@@ -316,6 +316,7 @@ def list_logs(
     response: Response,
     service_name: str | None = Query(default=None, min_length=1),
     level: str | None = Query(default=None, min_length=1),
+    request_id: str | None = Query(default=None, min_length=1),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[ApplicationLogResponse]:
@@ -324,12 +325,17 @@ def list_logs(
         for log in fetch_application_logs(
             service_name=service_name,
             level=level,
+            request_id=request_id,
             limit=limit,
             offset=offset,
         )
     ]
     response.headers["X-Total-Count"] = str(
-        count_application_logs(service_name=service_name, level=level)
+        count_application_logs(
+            service_name=service_name,
+            level=level,
+            request_id=request_id,
+        )
     )
     response.headers["X-Limit"] = str(limit)
     response.headers["X-Offset"] = str(offset)

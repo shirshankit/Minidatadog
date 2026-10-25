@@ -83,6 +83,9 @@ timeline has a root HTTP span and a child request-processing span linked by
 Request IDs in the Recent Traces table are clickable shortcuts to the
 corresponding trace timeline.
 
+Logs can be filtered by `request_id`, and request IDs in the Recent Logs table
+link directly to the matching trace timeline.
+
 Alert rules can be created and disabled from the dashboard. To test an alert,
 create a rule for `demo-service`, trigger `/simulate-error`, and refresh the
 dashboard. To test resolution, use a threshold that can move from true to
