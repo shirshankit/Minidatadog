@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MiniDatadog Dashboard</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background: #f4f6f8;
+            color: #1f2933;
+        }
+
+        h1 {
+            color: #111827;
+        }
+
+        .cards {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            min-width: 180px;
+            box-shadow: 0 2px 6px rgb(0 0 0 / 10%);
+        }
+
+        .label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .value {
+            font-size: 28px;
+            font-weight: bold;
+            margin-top: 8px;
+        }
+
+        #message {
+            margin-top: 20px;
+            color: #b91c1c;
+        }
+
+        table {
+            width: 100%;
+            margin-top: 20px;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 2px 6px rgb(0 0 0 / 10%);
+        }
+
+        th,
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+            text-align: left;
+        }
+
+        th {
+            background: #e5e7eb;
+        }
+
+        #alerts-section {
+            margin-top: 30px;
+        }
+
+        .alert {
+            margin-top: 10px;
+            padding: 16px;
+            border-left: 5px solid #dc2626;
+            border-radius: 6px;
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .log-level {
+            font-weight: bold;
+        }
+
+        .log-info {
+            color: #2563eb;
+        }
+
+        .log-warning {
+            color: #d97706;
+        }
+
+        .log-error {
+            color: #dc2626;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .status-success {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .chart-container {
+            margin-top: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgb(0 0 0 / 10%);
+            overflow-x: auto;
+        }
+
+        #duration-chart {
+            width: 100%;
+            min-width: 600px;
+            height: 280px;
+        }
+
+        .pagination {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 12px 0 28px;
+        }
+
+        .pagination button {
+            padding: 6px 12px;
+            cursor: pointer;
+        }
+
+        .pagination button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+
+        .page-label {
+            color: #4b5563;
+            min-width: 56px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>MiniDatadog Dashboard</h1>
+    <label for="service-name">Service:</label>
+    <input type="text" id="service-name" value="demo-service" placeholder="Enter service name">
+    <button id="filter-button">Apply Filter</button>
+    <label for="log-level">Log level:</label>
+    <select id="log-level">
+        <option value="">All levels</option>
+        <option value="INFO">INFO</option>
+        <option value="WARNING">WARNING</option>
+        <option value="ERROR">ERROR</option>
+    </select>
+
+    <div class="cards">
+        <div class="card">
+            <div class="label">Total Requests</div>
+            <div class="value" id="total-requests">-</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Errors</div>
+            <div class="value" id="error-count">-</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Error Rate</div>
+            <div class="value" id="error-rate">-</div>
+        </div>
+
+        <div class="card">
+            <div class="label">Average Duration</div>
+            <div class="value" id="average-duration">-</div>
+        </div>
+    </div>
+
+    <div id="message"></div>
+
+    <section id="alerts-section">
+        <h2>Active Alerts</h2>
+        <div id="alerts-container">
+            <p>No active alerts.</p>
+        </div>
+    </section>
+
+    <h2>Request Duration Chart</h2>
+
+    <div class="chart-container">
+        <canvas id="duration-chart"></canvas>
+    </div>
+
+    <h2>Recent Requests</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Service</th>
+                <th>Method</th>
+                <th>Path</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Request ID</th>
+            </tr>
+        </thead>
+        <tbody id="metrics-table-body"></tbody>
+    </table>
+    <div class="pagination">
+        <button id="metrics-previous" type="button">Previous</button>
+        <span class="page-label" id="metrics-page">Page 1</span>
+        <button id="metrics-next" type="button">Next</button>
+    </div>
+
+    <h2>Recent Logs</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Service</th>
+                <th>Level</th>
+                <th>Message</th>
+                <th>Recorded At</th>
+                <th>Request ID</th>
+            </tr>
+        </thead>
+        <tbody id="logs-table-body"></tbody>
+    </table>
+    <div class="pagination">
+        <button id="logs-previous" type="button">Previous</button>
+        <span class="page-label" id="logs-page">Page 1</span>
+        <button id="logs-next" type="button">Next</button>
+    </div>
+
+    <h2>Recent Traces</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Request ID</th>
+                <th>Service</th>
+                <th>Operation</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Started At</th>
+            </tr>
+        </thead>
+        <tbody id="traces-table-body"></tbody>
+    </table>
+    <div class="pagination">
+        <button id="traces-previous" type="button">Previous</button>
+        <span class="page-label" id="traces-page">Page 1</span>
+        <button id="traces-next" type="button">Next</button>
+    </div>
+
+    <script>
+        const pageSize = 10;
+        const paginationState = {
+            metrics: 0,
+            logs: 0,
+            traces: 0,
+        };
+
+        function updatePaginationControls(resource, totalCount) {
+            const offset = paginationState[resource];
+            const page = Math.floor(offset / pageSize) + 1;
+
+            document.getElementById(`${resource}-page`).textContent =
+                `Page ${page}`;
+            document.getElementById(`${resource}-previous`).disabled =
+                offset === 0;
+            document.getElementById(`${resource}-next`).disabled =
+                offset + pageSize >= totalCount;
+        }
+
+        function resetPagination() {
+            paginationState.metrics = 0;
+            paginationState.logs = 0;
+            paginationState.traces = 0;
+        }
+
+        async function loadSummary() {
+            const message = document.getElementById("message");
+
+            try {
+                const serviceName = document.getElementById("service-name").value.trim();
+
+                const query = serviceName
+                    ? `?service_name=${encodeURIComponent(serviceName)}`
+                    : "";
+
+                const response = await fetch(`/metrics/summary${query}`);
+
+                if (!response.ok) {
+                    throw new Error("Unable to load metrics summary");
+                }
+
+                const summary = await response.json();
+
+                document.getElementById("total-requests").textContent =
+                    summary.total_requests;
+
+                document.getElementById("error-count").textContent =
+                    summary.error_count;
+
+                document.getElementById("error-rate").textContent =
+                    `${(summary.error_rate * 100).toFixed(2)}%`;
+
+                document.getElementById("average-duration").textContent =
+                    `${summary.average_duration_ms.toFixed(2)} ms`;
+            } catch (error) {
+                message.textContent = error.message;
+            }
+        }
+
+        function drawDurationChart(metrics) {
+            const canvas = document.getElementById("duration-chart");
+            const context = canvas.getContext("2d");
+            const width = canvas.clientWidth;
+            const height = 280;
+            const pixelRatio = window.devicePixelRatio || 1;
+
+            canvas.width = width * pixelRatio;
+            canvas.height = height * pixelRatio;
+            context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+            context.clearRect(0, 0, width, height);
+
+            if (metrics.length === 0) {
+                context.fillStyle = "#6b7280";
+                context.font = "16px Arial";
+                context.fillText(
+                    "No request data available",
+                    20,
+                    40
+                );
+                return;
+            }
+
+            const chartMetrics = metrics.slice(-20);
+            const maximumDuration = Math.max(
+                ...chartMetrics.map((metric) => metric.duration_ms),
+                1
+            );
+            const leftPadding = 50;
+            const rightPadding = 20;
+            const topPadding = 20;
+            const bottomPadding = 40;
+            const chartWidth = width - leftPadding - rightPadding;
+            const chartHeight = height - topPadding - bottomPadding;
+            const xAxis = height - bottomPadding;
+
+            context.strokeStyle = "#d1d5db";
+            context.lineWidth = 1;
+            context.beginPath();
+            context.moveTo(leftPadding, topPadding);
+            context.lineTo(leftPadding, xAxis);
+            context.lineTo(width - rightPadding, xAxis);
+            context.stroke();
+
+            context.fillStyle = "#6b7280";
+            context.font = "12px Arial";
+            context.fillText(
+                `${maximumDuration.toFixed(2)} ms`,
+                4,
+                topPadding + 4
+            );
+            context.fillText("0 ms", 14, xAxis);
+
+            context.strokeStyle = "#2563eb";
+            context.lineWidth = 2;
+            context.beginPath();
+
+            chartMetrics.forEach((metric, index) => {
+                const x = leftPadding + (
+                    index / Math.max(chartMetrics.length - 1, 1)
+                ) * chartWidth;
+                const y = xAxis - (
+                    metric.duration_ms / maximumDuration
+                ) * chartHeight;
+
+                if (index === 0) {
+                    context.moveTo(x, y);
+                } else {
+                    context.lineTo(x, y);
+                }
+            });
+
+            context.stroke();
+        }
+
+        async function loadMetrics() {
+            const serviceName = document
+                .getElementById("service-name")
+                .value
+                .trim();
+
+            const parameters = new URLSearchParams({
+                limit: pageSize,
+                offset: paginationState.metrics,
+            });
+
+            if (serviceName) {
+                parameters.set("service_name", serviceName);
+            }
+
+            const response = await fetch(`/metrics?${parameters}`);
+
+            if (!response.ok) {
+                throw new Error("Unable to load metrics");
+            }
+
+            const metrics = await response.json();
+            drawDurationChart(metrics);
+            const tableBody = document.getElementById(
+                "metrics-table-body"
+            );
+
+            tableBody.innerHTML = "";
+
+            metrics
+                .reverse()
+                .forEach((metric) => {
+                    const row = document.createElement("tr");
+                    const values = [
+                        metric.service_name,
+                        metric.method,
+                        metric.path,
+                        metric.status_code,
+                        `${metric.duration_ms.toFixed(2)} ms`,
+                        metric.request_id || "-",
+                    ];
+
+                    values.forEach((value, index) => {
+                        const cell = document.createElement("td");
+                        cell.textContent = value;
+
+                        if (index === 3) {
+                            cell.classList.add("status-badge");
+                            cell.classList.add(
+                                metric.status_code >= 500
+                                    ? "status-error"
+                                    : "status-success"
+                            );
+                        }
+
+                        row.appendChild(cell);
+                    });
+
+                    tableBody.appendChild(row);
+                });
+
+            updatePaginationControls(
+                "metrics",
+                Number(response.headers.get("X-Total-Count") || metrics.length)
+            );
+        }
+
+        async function loadLogs() {
+            const serviceName = document
+                .getElementById("service-name")
+                .value
+                .trim();
+
+            const level = document
+                .getElementById("log-level")
+                .value;
+
+            const parameters = new URLSearchParams();
+            parameters.set("limit", pageSize);
+            parameters.set("offset", paginationState.logs);
+
+            if (serviceName) {
+                parameters.set("service_name", serviceName);
+            }
+
+            if (level) {
+                parameters.set("level", level);
+            }
+
+            const response = await fetch(`/logs?${parameters}`);
+
+            if (!response.ok) {
+                throw new Error("Unable to load logs");
+            }
+
+            const logs = await response.json();
+            const tableBody = document.getElementById("logs-table-body");
+
+            tableBody.innerHTML = "";
+
+            logs.forEach((log) => {
+                    const row = document.createElement("tr");
+
+                    const values = [
+                        log.service_name,
+                        log.level,
+                        log.message,
+                        new Date(log.recorded_at).toLocaleString(),
+                        log.request_id || "-",
+                    ];
+
+                    values.forEach((value, index) => {
+                        const cell = document.createElement("td");
+                        cell.textContent = value;
+
+                        if (index === 1) {
+                            cell.classList.add("log-level");
+                            cell.classList.add(
+                                `log-${log.level.toLowerCase()}`
+                            );
+                        }
+
+                        row.appendChild(cell);
+                    });
+                    tableBody.appendChild(row);
+                });
+
+            updatePaginationControls(
+                "logs",
+                Number(response.headers.get("X-Total-Count") || logs.length)
+            );
+        }
+
+        async function loadTraces() {
+            const serviceName = document
+                .getElementById("service-name")
+                .value
+                .trim();
+
+            const parameters = new URLSearchParams({
+                limit: pageSize,
+                offset: paginationState.traces,
+            });
+
+            if (serviceName) {
+                parameters.set("service_name", serviceName);
+            }
+
+            const response = await fetch(`/traces?${parameters}`);
+
+            if (!response.ok) {
+                throw new Error("Unable to load traces");
+            }
+
+            const traces = await response.json();
+            const tableBody = document.getElementById(
+                "traces-table-body"
+            );
+
+            tableBody.innerHTML = "";
+
+            traces.forEach((trace) => {
+                    const row = document.createElement("tr");
+                    const values = [
+                        trace.request_id,
+                        trace.service_name,
+                        trace.operation,
+                        trace.status_code,
+                        `${trace.duration_ms.toFixed(2)} ms`,
+                        new Date(trace.started_at).toLocaleString(),
+                    ];
+
+                    values.forEach((value) => {
+                        const cell = document.createElement("td");
+                        cell.textContent = value;
+                        row.appendChild(cell);
+                    });
+
+                    tableBody.appendChild(row);
+                });
+
+            updatePaginationControls(
+                "traces",
+                Number(response.headers.get("X-Total-Count") || traces.length)
+            );
+        }
+
+        document
+            .getElementById("filter-button")
+            .addEventListener("click", () => {
+                resetPagination();
+                loadSummary();
+                loadMetrics();
+                loadAlerts();
+                loadLogs();
+                loadTraces();
+            });
+
+        ["metrics", "logs", "traces"].forEach((resource) => {
+            document
+                .getElementById(`${resource}-previous`)
+                .addEventListener("click", () => {
+                    paginationState[resource] = Math.max(
+                        0,
+                        paginationState[resource] - pageSize
+                    );
+                    window[`load${resource[0].toUpperCase()}${resource.slice(1)}`]();
+                });
+
+            document
+                .getElementById(`${resource}-next`)
+                .addEventListener("click", () => {
+                    paginationState[resource] += pageSize;
+                    window[`load${resource[0].toUpperCase()}${resource.slice(1)}`]();
+                });
+        });
+
+        async function loadAlerts() {
+            const response = await fetch("/alerts/triggered");
+
+            if (!response.ok) {
+                throw new Error("Unable to load alerts");
+            }
+
+            const alerts = await response.json();
+            const alertsContainer = document.getElementById(
+                "alerts-container"
+            );
+
+            alertsContainer.innerHTML = "";
+
+            if (alerts.length === 0) {
+                alertsContainer.innerHTML = "<p>No active alerts.</p>";
+                return;
+            }
+
+            alerts.forEach((alert) => {
+                const alertElement = document.createElement("div");
+                alertElement.className = "alert";
+                alertElement.textContent =
+                    `${alert.service_name}: ${alert.metric} is ` +
+                    `${alert.current_value.toFixed(4)} ` +
+                    `${alert.operator} ${alert.threshold}`;
+
+                alertsContainer.appendChild(alertElement);
+            });
+        }
+        loadSummary();
+        loadMetrics();
+        loadAlerts();
+        loadLogs();
+        loadTraces();
+
+        setInterval(() => {
+            loadSummary();
+            loadMetrics();
+            loadAlerts();
+            loadLogs();
+            loadTraces();
+        }, 10000);
+    </script>
+</body>
+
+</html>

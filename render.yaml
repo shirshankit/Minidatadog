@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: minidatadog
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: minidatadog-db
+          property: connectionString
+      - key: SERVICE_NAME
+        value: demo-service
+      - key: TELEMETRY_RETENTION_DAYS
+        value: "30"
+      - key: FORCE_HTTPS
+        value: "true"
+      - key: MINIDATADOG_USERNAME
+        sync: false
+      - key: MINIDATADOG_PASSWORD
+        sync: false
+
+databases:
+  - name: minidatadog-db
+    plan: free
+    databaseName: minidatadog
+    user: minidatadog

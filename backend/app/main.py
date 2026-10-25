@@ -1,0 +1,389 @@
+import base64
+import binascii
+import hmac
+import os
+from datetime import datetime, timezone
+from time import perf_counter
+from uuid import uuid4
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.templating import Jinja2Templates
+
+from backend.app.database import (
+    check_database_connection,
+    cleanup_old_telemetry,
+    close_database_pool,
+    count_application_logs,
+    count_metrics,
+    count_trace_spans,
+    create_alert_rule,
+    create_application_log,
+    create_trace_span,
+    evaluate_alert_rules,
+    fetch_alert_rules,
+    fetch_application_logs,
+    fetch_metrics,
+    fetch_metrics_summary,
+    fetch_trace_spans,
+    get_service_name,
+    initialize_database,
+    open_database_pool,
+    save_metric,
+)
+
+from backend.app.metrics import record_metric
+
+
+from backend.app.schemas import (
+    AlertRuleCreate,
+    AlertRuleResponse,
+    ApplicationLogCreate,
+    ApplicationLogResponse,
+    MetricResponse,
+    MetricsSummaryResponse,
+    TriggeredAlertResponse,
+    TraceSpanResponse,
+)
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    open_database_pool()
+    initialize_database()
+    retention_days = int(os.getenv("TELEMETRY_RETENTION_DAYS", "30"))
+    cleanup_old_telemetry(retention_days=retention_days)
+
+    yield
+
+    close_database_pool()
+
+
+app = FastAPI(
+    title="MiniDatadog Demo Service",
+    lifespan=lifespan,
+)
+templates = Jinja2Templates(
+    directory="backend/app/templates"
+)
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = (
+        "camera=(), microphone=(), geolocation=()"
+    )
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'"
+    )
+    if os.getenv("FORCE_HTTPS", "").lower() == "true":
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
+    return response
+
+@app.middleware("http")
+async def require_basic_auth(request: Request, call_next):
+    username = os.getenv("MINIDATADOG_USERNAME")
+    password = os.getenv("MINIDATADOG_PASSWORD")
+
+    if username is None and password is None:
+        return await call_next(request)
+
+    if not username or not password:
+        return Response(
+            content="Authentication configuration is incomplete",
+            status_code=500,
+        )
+
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, encoded_credentials = authorization.partition(" ")
+
+    if scheme.lower() != "basic" or not encoded_credentials:
+        return Response(
+            content="Authentication required",
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    try:
+        decoded_credentials = base64.b64decode(
+            encoded_credentials,
+            validate=True,
+        ).decode("utf-8")
+        supplied_username, supplied_password = (
+            decoded_credentials.split(":", 1)
+        )
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        supplied_username = ""
+        supplied_password = ""
+
+    if not (
+        hmac.compare_digest(supplied_username, username)
+        and hmac.compare_digest(supplied_password, password)
+    ):
+        return Response(
+            content="Invalid credentials",
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic"},
+        )
+
+    return await call_next(request)
+
+@app.middleware("http")
+async def measure_request_time(request: Request, call_next):
+    request_id = str(uuid4())
+    started_at = datetime.now(timezone.utc)
+    start_time = perf_counter()
+
+    response = await call_next(request)
+
+    duration_ms = (perf_counter() - start_time) * 1000
+
+    record_metric(
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+    )
+
+    save_metric(
+        service_name=get_service_name(),
+        method=request.method,
+        path=request.url.path,
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+        request_id=request_id,
+    )
+
+    log_level = (
+        "ERROR"
+        if response.status_code >= 500
+        else "INFO"
+    )
+
+    create_application_log(
+        service_name=get_service_name(),
+        level=log_level,
+        message=(
+            f"{request.method} {request.url.path} "
+            f"returned {response.status_code}"
+        ),
+        request_id=request_id,
+    )
+
+    finished_at = datetime.now(timezone.utc)
+    create_trace_span(
+        request_id=request_id,
+        service_name=get_service_name(),
+        operation=f"{request.method} {request.url.path}",
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+        started_at=started_at,
+        finished_at=finished_at,
+    )
+
+    response.headers["X-Process-Time-ms"] = f"{duration_ms:.2f}"
+    response.headers["X-Request-ID"] = request_id
+
+    return response
+
+
+@app.get("/health")
+def health_check() -> dict[str, str]:
+    return {"status": "ok"}
+
+@app.get("/health/database")
+def database_health_check() -> dict[str, str]:
+    if not check_database_connection():
+        raise HTTPException(
+            status_code=503,
+            detail="Database health check failed",
+        )
+
+    return {
+        "status": "ok",
+        "database": "ok",
+    }
+
+@app.post(
+    "/alerts/rules",
+    response_model=AlertRuleResponse,
+)
+def create_alert_rule_endpoint(
+    alert_rule: AlertRuleCreate,
+) -> AlertRuleResponse:
+    return AlertRuleResponse(
+        **create_alert_rule(
+            service_name=alert_rule.service_name,
+            metric=alert_rule.metric,
+            operator=alert_rule.operator,
+            threshold=alert_rule.threshold,
+        )
+    )
+
+
+@app.get(
+    "/alerts/rules",
+    response_model=list[AlertRuleResponse],
+)
+def list_alert_rules() -> list[AlertRuleResponse]:
+    return [
+        AlertRuleResponse(**alert_rule)
+        for alert_rule in fetch_alert_rules()
+    ]
+
+@app.get(
+    "/alerts/triggered",
+    response_model=list[TriggeredAlertResponse],
+)
+def list_triggered_alerts() -> list[TriggeredAlertResponse]:
+    return [
+        TriggeredAlertResponse(**alert)
+        for alert in evaluate_alert_rules()
+    ]
+
+@app.post(
+    "/logs",
+    response_model=ApplicationLogResponse,
+)
+def create_log_endpoint(
+    log: ApplicationLogCreate,
+) -> ApplicationLogResponse:
+    return ApplicationLogResponse(
+        **create_application_log(
+            service_name=log.service_name,
+            level=log.level,
+            message=log.message,
+        )
+    )
+
+
+@app.get(
+    "/logs",
+    response_model=list[ApplicationLogResponse],
+)
+def list_logs(
+    response: Response,
+    service_name: str | None = Query(default=None, min_length=1),
+    level: str | None = Query(default=None, min_length=1),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[ApplicationLogResponse]:
+    logs = [
+        ApplicationLogResponse(**log)
+        for log in fetch_application_logs(
+            service_name=service_name,
+            level=level,
+            limit=limit,
+            offset=offset,
+        )
+    ]
+    response.headers["X-Total-Count"] = str(
+        count_application_logs(service_name=service_name, level=level)
+    )
+    response.headers["X-Limit"] = str(limit)
+    response.headers["X-Offset"] = str(offset)
+    return logs
+
+
+@app.get(
+    "/traces",
+    response_model=list[TraceSpanResponse],
+)
+def list_traces(
+    response: Response,
+    request_id: str | None = Query(default=None, min_length=1),
+    service_name: str | None = Query(default=None, min_length=1),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[TraceSpanResponse]:
+    traces = [
+        TraceSpanResponse(**trace)
+        for trace in fetch_trace_spans(
+            request_id=request_id,
+            service_name=service_name,
+            limit=limit,
+            offset=offset,
+        )
+    ]
+    response.headers["X-Total-Count"] = str(
+        count_trace_spans(
+            request_id=request_id,
+            service_name=service_name,
+        )
+    )
+    response.headers["X-Limit"] = str(limit)
+    response.headers["X-Offset"] = str(offset)
+    return traces
+
+@app.get("/products")
+def list_products() -> list[dict[str, int | str]]:
+    return [
+        {"id": 1, "name": "Keyboard", "price": 49},
+        {"id": 2, "name": "Mouse", "price": 25},
+        {"id": 3, "name": "Monitor", "price": 199},
+    ]
+
+
+@app.get("/simulate-error")
+def simulate_error() -> None:
+    raise HTTPException(
+        status_code=500,
+        detail="Simulated service failure",
+    )
+
+@app.get("/dashboard")
+def dashboard(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="dashboard.html",
+        context={},
+    )
+
+@app.get("/metrics", response_model=list[MetricResponse])
+def list_metrics(
+    response: Response,
+    service_name: str | None = Query(default=None, min_length=1),
+    request_id: str | None = Query(default=None, min_length=1),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> list[MetricResponse]:
+    metrics = [
+        MetricResponse(**metric)
+        for metric in fetch_metrics(
+            service_name=service_name,
+            request_id=request_id,
+            limit=limit,
+            offset=offset,
+        )
+    ]
+    response.headers["X-Total-Count"] = str(
+        count_metrics(
+            service_name=service_name,
+            request_id=request_id,
+        )
+    )
+    response.headers["X-Limit"] = str(limit)
+    response.headers["X-Offset"] = str(offset)
+    return metrics
+
+@app.get(
+    "/metrics/summary",
+    response_model=MetricsSummaryResponse,
+)
+def metrics_summary(
+    since_seconds: float | None = Query(default=None, gt=0),
+    service_name: str | None = Query(default=None, min_length=1),
+) -> MetricsSummaryResponse:
+    return MetricsSummaryResponse(
+        **fetch_metrics_summary(
+            since_seconds=since_seconds,
+            service_name=service_name,
+        )
+    )
