@@ -89,3 +89,13 @@ class TraceSpanResponse(BaseModel):
     started_at: str
     finished_at: str
     parent_span_id: int | None = None
+
+
+class TraceSummaryResponse(BaseModel):
+    request_id: str
+    span_count: int
+    status_code: int
+    operation: str
+    duration_ms: float
+    started_at: str
+    finished_at: str

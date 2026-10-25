@@ -64,6 +64,7 @@ over HTTPS.
 | `GET /logs` | Structured logs with filters and pagination |
 | `GET /traces` | Request trace spans with filters and pagination |
 | `GET /traces/{request_id}` | Load one complete request timeline |
+| `GET /traces/{request_id}/summary` | Load trace status and timing summary |
 | `GET /alerts/triggered` | Currently triggered alerts |
 | `GET /alerts/history` | Triggered and resolved alert events |
 

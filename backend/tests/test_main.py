@@ -353,6 +353,33 @@ def test_trace_can_be_loaded_from_dedicated_endpoint(
     assert len(traces) == 2
     assert all(trace["request_id"] == request_id for trace in traces)
 
+
+def test_trace_summary_can_be_loaded_by_request_id(
+    client: TestClient,
+) -> None:
+    response = client.get("/products")
+    request_id = response.headers["X-Request-ID"]
+
+    summary_response = client.get(
+        f"/traces/{request_id}/summary"
+    )
+
+    assert summary_response.status_code == 200
+    summary = summary_response.json()
+    assert summary["request_id"] == request_id
+    assert summary["span_count"] == 2
+    assert summary["operation"] == "GET /products"
+
+
+def test_trace_summary_returns_not_found_for_unknown_request(
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/traces/00000000-0000-0000-0000-000000000000/summary"
+    )
+
+    assert response.status_code == 404
+
 def test_create_alert_rule(client: TestClient) -> None:
     response = client.post(
         "/alerts/rules",

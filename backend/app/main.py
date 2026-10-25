@@ -29,6 +29,7 @@ from backend.app.database import (
     fetch_metrics,
     fetch_metrics_summary,
     fetch_trace_spans,
+    fetch_trace_summary,
     get_service_name,
     initialize_database,
     open_database_pool,
@@ -49,6 +50,7 @@ from backend.app.schemas import (
     MetricsSummaryResponse,
     TriggeredAlertResponse,
     TraceSpanResponse,
+    TraceSummaryResponse,
 )
 
 @asynccontextmanager
@@ -379,6 +381,19 @@ def get_trace_by_request_id(
             limit=500,
         )
     ]
+
+
+@app.get(
+    "/traces/{request_id}/summary",
+    response_model=TraceSummaryResponse,
+)
+def get_trace_summary(
+    request_id: str,
+) -> TraceSummaryResponse:
+    summary = fetch_trace_summary(request_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Trace not found")
+    return TraceSummaryResponse(**summary)
 
 
 @app.get("/products")

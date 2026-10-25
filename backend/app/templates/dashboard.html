@@ -720,6 +720,13 @@
                         throw new Error("Unable to load trace details");
                     }
                     const traces = await response.json();
+                    const summaryResponse = await fetch(
+                        `/traces/${encodeURIComponent(requestId)}/summary`
+                    );
+                    if (!summaryResponse.ok) {
+                        throw new Error("Trace summary not found");
+                    }
+                    const summary = await summaryResponse.json();
                     detailsContainer.innerHTML = "";
 
                     if (traces.length === 0) {
@@ -727,6 +734,15 @@
                             "<p>No trace found for that request ID.</p>";
                         return;
                     }
+
+                    const summaryElement = document.createElement("div");
+                    summaryElement.className = "trace-span";
+                    summaryElement.textContent =
+                        `${summary.operation} — ` +
+                        `${summary.status_code} — ` +
+                        `${summary.duration_ms.toFixed(2)} ms — ` +
+                        `${summary.span_count} spans`;
+                    detailsContainer.appendChild(summaryElement);
 
                     traces.forEach((trace) => {
                         const detail = document.createElement("div");

@@ -854,3 +854,36 @@ def count_trace_spans(
         with connection.cursor() as cursor:
             cursor.execute(query, parameters)
             return cursor.fetchone()[0]
+
+
+def fetch_trace_summary(
+    request_id: str,
+) -> dict[str, str | int | float] | None:
+    query = """
+        SELECT request_id,
+               COUNT(*) AS span_count,
+               MAX(status_code) FILTER (WHERE parent_span_id IS NULL),
+               MAX(operation) FILTER (WHERE parent_span_id IS NULL),
+               MAX(duration_ms) FILTER (WHERE parent_span_id IS NULL),
+               MIN(started_at),
+               MAX(finished_at)
+        FROM trace_spans
+        WHERE request_id = %s
+        GROUP BY request_id
+    """
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (request_id,))
+            row = cursor.fetchone()
+
+    if row is None:
+        return None
+    return {
+        "request_id": row[0],
+        "span_count": row[1],
+        "status_code": row[2],
+        "operation": row[3],
+        "duration_ms": float(row[4]),
+        "started_at": row[5].isoformat(),
+        "finished_at": row[6].isoformat(),
+    }
