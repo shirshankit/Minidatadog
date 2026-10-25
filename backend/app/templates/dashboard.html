@@ -582,6 +582,46 @@
             font-size: 13px;
         }
 
+        #external-project-section .project-key {
+            margin: 12px 0;
+            padding: 12px;
+            border: 1px dashed var(--green);
+            border-radius: 10px;
+            background: rgb(66 211 146 / 8%);
+            color: var(--green);
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            overflow-wrap: anywhere;
+        }
+
+        #external-project-data {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 18px;
+        }
+
+        .external-data-card {
+            min-height: 120px;
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            background: rgb(23 32 51 / 70%);
+        }
+
+        .external-data-card h3 {
+            margin: 0 0 8px;
+            color: #cbd8eb;
+        }
+
+        .external-data-card pre {
+            max-height: 180px;
+            margin: 0;
+            overflow: auto;
+            color: var(--muted);
+            font-size: 11px;
+            white-space: pre-wrap;
+        }
+
         @media (max-width: 850px) {
             .cards {
                 grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -624,6 +664,10 @@
 
             .alert-rule-form > * {
                 width: 100%;
+            }
+
+            #external-project-data {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -803,6 +847,48 @@
         </div>
     </section>
 
+    <section class="dashboard-section" id="external-project-section">
+        <h2>External Applications</h2>
+        <p class="section-kicker">
+            Create a private project for another application and inspect its
+            metrics, logs, and traces with a project API key.
+        </p>
+        <form class="alert-rule-form" id="external-project-form">
+            <input
+                id="external-project-name"
+                type="text"
+                placeholder="Project name, for example friend-shop"
+                required
+            >
+            <button type="submit">Create Project</button>
+        </form>
+        <p id="external-project-message"></p>
+        <div id="external-project-key" class="project-key" hidden></div>
+        <form class="alert-rule-form" id="external-project-load-form">
+            <input
+                id="external-project-api-key"
+                type="password"
+                placeholder="Paste project API key"
+                required
+            >
+            <button type="submit">Load Project Data</button>
+        </form>
+        <div id="external-project-data">
+            <div class="external-data-card">
+                <h3>Metrics</h3>
+                <pre id="external-metrics-data">Enter a project API key.</pre>
+            </div>
+            <div class="external-data-card">
+                <h3>Logs</h3>
+                <pre id="external-logs-data">Enter a project API key.</pre>
+            </div>
+            <div class="external-data-card">
+                <h3>Traces</h3>
+                <pre id="external-traces-data">Enter a project API key.</pre>
+            </div>
+        </div>
+    </section>
+
     <script>
         const pageSize = 10;
         const paginationState = {
@@ -842,6 +928,91 @@
             badge.textContent = statusCode;
             return badge;
         }
+
+        async function loadExternalProjectData(apiKey) {
+            const headers = {"X-API-Key": apiKey};
+            const resources = ["metrics", "logs", "traces"];
+
+            const responses = await Promise.all(
+                resources.map((resource) =>
+                    fetch(`/api/v1/data/${resource}?limit=10`, {headers})
+                )
+            );
+
+            if (responses.some((response) => !response.ok)) {
+                throw new Error("Unable to load external project data");
+            }
+
+            const payloads = await Promise.all(
+                responses.map((response) => response.json())
+            );
+            resources.forEach((resource, index) => {
+                document.getElementById(`external-${resource}-data`)
+                    .textContent = JSON.stringify(payloads[index], null, 2);
+            });
+        }
+
+        document
+            .getElementById("external-project-form")
+            .addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const message = document.getElementById(
+                    "external-project-message"
+                );
+                const name = document.getElementById(
+                    "external-project-name"
+                ).value.trim();
+
+                try {
+                    const response = await fetch("/api/v1/projects", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({name}),
+                    });
+                    if (!response.ok) {
+                        throw new Error(
+                            response.status === 401
+                                ? "Sign in to create an external project"
+                                : "Unable to create external project"
+                        );
+                    }
+                    const project = await response.json();
+                    const keyElement = document.getElementById(
+                        "external-project-key"
+                    );
+                    keyElement.hidden = false;
+                    keyElement.textContent =
+                        `Save this API key now. It will not be shown again: ` +
+                        project.api_key;
+                    document.getElementById(
+                        "external-project-api-key"
+                    ).value = project.api_key;
+                    message.textContent =
+                        `Project "${project.name}" created.`;
+                    await loadExternalProjectData(project.api_key);
+                } catch (error) {
+                    message.textContent = error.message;
+                }
+            });
+
+        document
+            .getElementById("external-project-load-form")
+            .addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const message = document.getElementById(
+                    "external-project-message"
+                );
+                const apiKey = document.getElementById(
+                    "external-project-api-key"
+                ).value.trim();
+
+                try {
+                    await loadExternalProjectData(apiKey);
+                    message.textContent = "External project data loaded.";
+                } catch (error) {
+                    message.textContent = error.message;
+                }
+            });
 
         async function loadSummary() {
             const message = document.getElementById("message");

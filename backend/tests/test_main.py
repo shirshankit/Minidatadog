@@ -502,6 +502,8 @@ def test_dashboard_page_loads(client: TestClient) -> None:
     assert 'id="trace-search-form"' in response.text
     assert 'id="trace-details-container"' in response.text
     assert "trace-span-bar" in response.text
+    assert "external-project-section" in response.text
+    assert "external-project-form" in response.text
     assert "status-warning" in response.text
     assert 'href = "#trace-details-container"' in response.text
 
