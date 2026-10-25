@@ -173,6 +173,8 @@ async def measure_request_time(request: Request, call_next):
     log_level = (
         "ERROR"
         if response.status_code >= 500
+        else "WARNING"
+        if response.status_code >= 400
         else "INFO"
     )
 
@@ -304,6 +306,7 @@ def create_log_endpoint(
             service_name=log.service_name,
             level=log.level,
             message=log.message,
+            request_id=log.request_id,
         )
     )
 
@@ -317,6 +320,7 @@ def list_logs(
     service_name: str | None = Query(default=None, min_length=1),
     level: str | None = Query(default=None, min_length=1),
     request_id: str | None = Query(default=None, min_length=1),
+    since_seconds: float | None = Query(default=None, gt=0),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[ApplicationLogResponse]:
@@ -326,6 +330,7 @@ def list_logs(
             service_name=service_name,
             level=level,
             request_id=request_id,
+            since_seconds=since_seconds,
             limit=limit,
             offset=offset,
         )
@@ -335,6 +340,7 @@ def list_logs(
             service_name=service_name,
             level=level,
             request_id=request_id,
+            since_seconds=since_seconds,
         )
     )
     response.headers["X-Limit"] = str(limit)
@@ -350,6 +356,7 @@ def list_traces(
     response: Response,
     request_id: str | None = Query(default=None, min_length=1),
     service_name: str | None = Query(default=None, min_length=1),
+    since_seconds: float | None = Query(default=None, gt=0),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[TraceSpanResponse]:
@@ -358,6 +365,7 @@ def list_traces(
         for trace in fetch_trace_spans(
             request_id=request_id,
             service_name=service_name,
+            since_seconds=since_seconds,
             limit=limit,
             offset=offset,
         )
@@ -366,6 +374,7 @@ def list_traces(
         count_trace_spans(
             request_id=request_id,
             service_name=service_name,
+            since_seconds=since_seconds,
         )
     )
     response.headers["X-Limit"] = str(limit)
@@ -431,12 +440,14 @@ def list_metrics(
     response: Response,
     service_name: str | None = Query(default=None, min_length=1),
     request_id: str | None = Query(default=None, min_length=1),
+    since_seconds: float | None = Query(default=None, gt=0),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> list[MetricResponse]:
     metrics = [
         MetricResponse(**metric)
         for metric in fetch_metrics(
+            since_seconds=since_seconds,
             service_name=service_name,
             request_id=request_id,
             limit=limit,
@@ -445,6 +456,7 @@ def list_metrics(
     ]
     response.headers["X-Total-Count"] = str(
         count_metrics(
+            since_seconds=since_seconds,
             service_name=service_name,
             request_id=request_id,
         )

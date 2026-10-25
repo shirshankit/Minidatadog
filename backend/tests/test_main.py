@@ -124,6 +124,24 @@ def test_request_creates_trace_span(client: TestClient) -> None:
     )
 
 
+def test_client_errors_are_recorded_as_warning_logs(
+    client: TestClient,
+) -> None:
+    response = client.get("/missing-endpoint")
+    request_id = response.headers["X-Request-ID"]
+
+    logs_response = client.get(
+        "/logs",
+        params={"request_id": request_id},
+    )
+
+    assert response.status_code == 404
+    assert logs_response.status_code == 200
+    logs = logs_response.json()
+    assert logs
+    assert logs[0]["level"] == "WARNING"
+
+
 def test_traces_can_filter_by_service(client: TestClient) -> None:
     response = client.get(
         "/traces",
@@ -187,6 +205,59 @@ def test_metrics_reject_invalid_pagination(client: TestClient) -> None:
     assert client.get("/metrics?limit=0").status_code == 422
     assert client.get("/metrics?limit=501").status_code == 422
     assert client.get("/metrics?offset=-1").status_code == 422
+
+
+def test_telemetry_rejects_non_positive_time_windows(
+    client: TestClient,
+) -> None:
+    assert client.get("/metrics?since_seconds=0").status_code == 422
+    assert client.get("/logs?since_seconds=0").status_code == 422
+    assert client.get("/traces?since_seconds=0").status_code == 422
+
+
+def test_telemetry_supports_rolling_time_windows(
+    client: TestClient,
+) -> None:
+    response = client.get("/products")
+    request_id = response.headers["X-Request-ID"]
+
+    metrics = client.get(
+        "/metrics",
+        params={"request_id": request_id, "since_seconds": 60},
+    )
+    logs = client.get(
+        "/logs",
+        params={"request_id": request_id, "since_seconds": 60},
+    )
+    traces = client.get(
+        "/traces",
+        params={"request_id": request_id, "since_seconds": 60},
+    )
+
+    assert metrics.status_code == 200
+    assert logs.status_code == 200
+    assert traces.status_code == 200
+    assert metrics.json()
+    assert logs.json()
+    assert traces.json()
+
+
+def test_application_logs_can_store_request_id(
+    client: TestClient,
+) -> None:
+    request_id = "manual-request-correlation"
+    response = client.post(
+        "/logs",
+        json={
+            "service_name": "log-test-service",
+            "level": "INFO",
+            "message": "Correlated application log",
+            "request_id": request_id,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["request_id"] == request_id
 
 def test_metrics_summary(client: TestClient) -> None:
     client.get("/health")

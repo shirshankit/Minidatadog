@@ -659,6 +659,7 @@ def fetch_application_logs(
     service_name: str | None = None,
     level: str | None = None,
     request_id: str | None = None,
+    since_seconds: float | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict[str, str | int | None]]:
@@ -670,6 +671,12 @@ def fetch_application_logs(
 
     conditions: list[str] = []
     parameters: list[object] = []
+
+    if since_seconds is not None:
+        conditions.append("recorded_at >= %s")
+        parameters.append(
+            datetime.now(timezone.utc) - timedelta(seconds=since_seconds)
+        )
 
     if service_name is not None:
         conditions.append("service_name = %s")
@@ -711,10 +718,17 @@ def count_application_logs(
     service_name: str | None = None,
     level: str | None = None,
     request_id: str | None = None,
+    since_seconds: float | None = None,
 ) -> int:
     query = "SELECT COUNT(*) FROM application_logs"
     conditions: list[str] = []
     parameters: list[object] = []
+
+    if since_seconds is not None:
+        conditions.append("recorded_at >= %s")
+        parameters.append(
+            datetime.now(timezone.utc) - timedelta(seconds=since_seconds)
+        )
 
     if service_name is not None:
         conditions.append("service_name = %s")
@@ -795,6 +809,7 @@ def create_trace_span(
 def fetch_trace_spans(
     request_id: str | None = None,
     service_name: str | None = None,
+    since_seconds: float | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict[str, str | int | float]]:
@@ -806,6 +821,12 @@ def fetch_trace_spans(
     """
     conditions: list[str] = []
     parameters: list[object] = []
+
+    if since_seconds is not None:
+        conditions.append("started_at >= %s")
+        parameters.append(
+            datetime.now(timezone.utc) - timedelta(seconds=since_seconds)
+        )
 
     if request_id is not None:
         conditions.append("request_id = %s")
@@ -845,10 +866,17 @@ def fetch_trace_spans(
 def count_trace_spans(
     request_id: str | None = None,
     service_name: str | None = None,
+    since_seconds: float | None = None,
 ) -> int:
     query = "SELECT COUNT(*) FROM trace_spans"
     conditions: list[str] = []
     parameters: list[object] = []
+
+    if since_seconds is not None:
+        conditions.append("started_at >= %s")
+        parameters.append(
+            datetime.now(timezone.utc) - timedelta(seconds=since_seconds)
+        )
 
     if request_id is not None:
         conditions.append("request_id = %s")

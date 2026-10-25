@@ -69,7 +69,12 @@ over HTTPS.
 | `GET /alerts/history` | Triggered and resolved alert events |
 
 The paginated telemetry endpoints accept `limit` (1-500) and `offset` (0 or
-greater). They return `X-Total-Count`, `X-Limit`, and `X-Offset` headers.
+greater). Metrics, logs, and traces also accept `since_seconds` for a positive
+rolling time window. They return `X-Total-Count`, `X-Limit`, and `X-Offset`
+headers.
+
+Logs submitted through `POST /logs` may include `request_id` to correlate an
+application log with an existing request trace.
 
 Alert history records each alert lifecycle once. An event is marked
 `TRIGGERED` when its condition first becomes true and `RESOLVED` when the

@@ -68,6 +68,7 @@ class ApplicationLogCreate(BaseModel):
     service_name: str = Field(min_length=1)
     level: Literal["INFO", "WARNING", "ERROR"]
     message: str = Field(min_length=1)
+    request_id: str | None = Field(default=None, min_length=1)
 
 
 class ApplicationLogResponse(BaseModel):
