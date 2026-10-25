@@ -338,6 +338,20 @@ def test_trace_details_can_be_found_by_request_id(
     assert trace_response.status_code == 200
     assert trace_response.json()[0]["request_id"] == request_id
 
+
+def test_trace_can_be_loaded_from_dedicated_endpoint(
+    client: TestClient,
+) -> None:
+    response = client.get("/products")
+    request_id = response.headers["X-Request-ID"]
+
+    trace_response = client.get(f"/traces/{request_id}")
+
+    assert trace_response.status_code == 200
+    traces = trace_response.json()
+    assert len(traces) == 2
+    assert all(trace["request_id"] == request_id for trace in traces)
+
 def test_create_alert_rule(client: TestClient) -> None:
     response = client.post(
         "/alerts/rules",

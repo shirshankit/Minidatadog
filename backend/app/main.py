@@ -364,6 +364,23 @@ def list_traces(
     response.headers["X-Offset"] = str(offset)
     return traces
 
+
+@app.get(
+    "/traces/{request_id}",
+    response_model=list[TraceSpanResponse],
+)
+def get_trace_by_request_id(
+    request_id: str,
+) -> list[TraceSpanResponse]:
+    return [
+        TraceSpanResponse(**trace)
+        for trace in fetch_trace_spans(
+            request_id=request_id,
+            limit=500,
+        )
+    ]
+
+
 @app.get("/products")
 def list_products() -> list[dict[str, int | str]]:
     return [

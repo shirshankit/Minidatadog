@@ -63,6 +63,7 @@ over HTTPS.
 | `GET /metrics` | Request metrics with filters and pagination |
 | `GET /logs` | Structured logs with filters and pagination |
 | `GET /traces` | Request trace spans with filters and pagination |
+| `GET /traces/{request_id}` | Load one complete request timeline |
 | `GET /alerts/triggered` | Currently triggered alerts |
 | `GET /alerts/history` | Triggered and resolved alert events |
 
