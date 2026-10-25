@@ -61,6 +61,8 @@ class AlertHistoryResponse(BaseModel):
     threshold: float
     current_value: float
     triggered_at: str
+    status: Literal["TRIGGERED", "RESOLVED"]
+    resolved_at: str | None = None
 
 class ApplicationLogCreate(BaseModel):
     service_name: str = Field(min_length=1)

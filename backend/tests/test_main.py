@@ -394,8 +394,39 @@ def test_alert_history_is_recorded_and_listed(client: TestClient) -> None:
     assert any(
         entry["service_name"] == "demo-service"
         and entry["metric"] == "error_count"
+        and entry["status"] == "TRIGGERED"
         for entry in response.json()
     )
+
+
+def test_triggered_alert_evaluation_does_not_duplicate_open_history(
+    client: TestClient,
+) -> None:
+    client.get("/health")
+    client.post(
+        "/alerts/rules",
+        json={
+            "service_name": "demo-service",
+            "metric": "error_count",
+            "operator": ">",
+            "threshold": 0,
+        },
+    )
+
+    first = client.get("/alerts/triggered")
+    second = client.get("/alerts/triggered")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    history = client.get("/alerts/history", params={"limit": 200}).json()
+    matching = [
+        entry
+        for entry in history
+        if entry["service_name"] == "demo-service"
+        and entry["metric"] == "error_count"
+        and entry["status"] == "TRIGGERED"
+    ]
+    assert matching
 
 
 def test_triggered_alerts_include_matching_rule(

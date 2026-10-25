@@ -64,9 +64,14 @@ over HTTPS.
 | `GET /logs` | Structured logs with filters and pagination |
 | `GET /traces` | Request trace spans with filters and pagination |
 | `GET /alerts/triggered` | Currently triggered alerts |
+| `GET /alerts/history` | Triggered and resolved alert events |
 
 The paginated telemetry endpoints accept `limit` (1-500) and `offset` (0 or
 greater). They return `X-Total-Count`, `X-Limit`, and `X-Offset` headers.
+
+Alert history records each alert lifecycle once. An event is marked
+`TRIGGERED` when its condition first becomes true and `RESOLVED` when the
+condition returns to normal.
 
 ## Deploy to Render
 

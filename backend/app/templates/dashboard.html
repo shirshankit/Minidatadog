@@ -781,7 +781,13 @@
                     `${entry.service_name}: ${entry.metric} ` +
                     `${entry.operator} ${entry.threshold} ` +
                     `(current: ${entry.current_value.toFixed(4)}) - ` +
-                    `${new Date(entry.triggered_at).toLocaleString()}`;
+                    `${entry.status} - ` +
+                    `${new Date(entry.triggered_at).toLocaleString()}` +
+                    (entry.resolved_at
+                        ? ` (resolved ${new Date(
+                            entry.resolved_at
+                        ).toLocaleString()})`
+                        : "");
                 historyContainer.appendChild(historyElement);
             });
         }

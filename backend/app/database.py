@@ -86,8 +86,14 @@ def initialize_database() -> None:
             operator TEXT NOT NULL,
             threshold DOUBLE PRECISION NOT NULL,
             current_value DOUBLE PRECISION NOT NULL,
-            triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            status TEXT NOT NULL DEFAULT 'TRIGGERED',
+            resolved_at TIMESTAMPTZ
         );
+        ALTER TABLE alert_history
+        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'TRIGGERED';
+        ALTER TABLE alert_history
+        ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ;
 
         CREATE TABLE IF NOT EXISTS application_logs (
             id BIGSERIAL PRIMARY KEY,
@@ -487,7 +493,18 @@ def evaluate_alert_rules() -> list[dict[str, str | float | int | bool]]:
                 "triggered": True,
             }
             triggered_alerts.append(alert)
-            record_alert_history(alert)
+            open_history = fetch_open_alert_history(int(alert["id"]))
+            if open_history is None:
+                record_alert_history(alert)
+            else:
+                update_alert_history_value(
+                    open_history["id"],
+                    current_value,
+                )
+        else:
+            open_history = fetch_open_alert_history(int(alert_rule["id"]))
+            if open_history is not None:
+                resolve_alert_history(open_history["id"], current_value)
 
     return triggered_alerts
 
@@ -498,9 +515,9 @@ def record_alert_history(
     query = """
         INSERT INTO alert_history (
             rule_id, service_name, metric, operator,
-            threshold, current_value
+            threshold, current_value, status
         )
-        VALUES (%s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, 'TRIGGERED')
     """
     with pool.connection() as connection:
         with connection.cursor() as cursor:
@@ -518,12 +535,61 @@ def record_alert_history(
         connection.commit()
 
 
+def fetch_open_alert_history(
+    rule_id: int,
+) -> dict[str, int | float] | None:
+    query = """
+        SELECT id, current_value
+        FROM alert_history
+        WHERE rule_id = %s AND resolved_at IS NULL
+        ORDER BY triggered_at DESC
+        LIMIT 1
+    """
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (rule_id,))
+            row = cursor.fetchone()
+    if row is None:
+        return None
+    return {"id": row[0], "current_value": float(row[1])}
+
+
+def update_alert_history_value(history_id: int, current_value: float) -> None:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE alert_history
+                SET current_value = %s
+                WHERE id = %s AND resolved_at IS NULL
+                """,
+                (current_value, history_id),
+            )
+        connection.commit()
+
+
+def resolve_alert_history(history_id: int, current_value: float) -> None:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE alert_history
+                SET current_value = %s,
+                    status = 'RESOLVED',
+                    resolved_at = NOW()
+                WHERE id = %s AND resolved_at IS NULL
+                """,
+                (current_value, history_id),
+            )
+        connection.commit()
+
+
 def fetch_alert_history(
     limit: int = 50,
 ) -> list[dict[str, str | float | int]]:
     query = """
         SELECT id, rule_id, service_name, metric, operator,
-               threshold, current_value, triggered_at
+               threshold, current_value, triggered_at, status, resolved_at
         FROM alert_history
         ORDER BY triggered_at DESC
         LIMIT %s
@@ -543,6 +609,8 @@ def fetch_alert_history(
             "threshold": float(row[5]),
             "current_value": float(row[6]),
             "triggered_at": row[7].isoformat(),
+            "status": row[8],
+            "resolved_at": row[9].isoformat() if row[9] else None,
         }
         for row in rows
     ]
