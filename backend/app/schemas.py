@@ -51,6 +51,17 @@ class TriggeredAlertResponse(BaseModel):
     current_value: float
     triggered: bool
 
+
+class AlertHistoryResponse(BaseModel):
+    id: int
+    rule_id: int
+    service_name: str
+    metric: str
+    operator: str
+    threshold: float
+    current_value: float
+    triggered_at: str
+
 class ApplicationLogCreate(BaseModel):
     service_name: str = Field(min_length=1)
     level: Literal["INFO", "WARNING", "ERROR"]

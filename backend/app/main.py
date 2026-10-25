@@ -24,6 +24,7 @@ from backend.app.database import (
     disable_alert_rule,
     evaluate_alert_rules,
     fetch_alert_rules,
+    fetch_alert_history,
     fetch_application_logs,
     fetch_metrics,
     fetch_metrics_summary,
@@ -41,6 +42,7 @@ from backend.app.notifications import notify_triggered_alerts
 from backend.app.schemas import (
     AlertRuleCreate,
     AlertRuleResponse,
+    AlertHistoryResponse,
     ApplicationLogCreate,
     ApplicationLogResponse,
     MetricResponse,
@@ -263,6 +265,19 @@ def list_triggered_alerts() -> list[TriggeredAlertResponse]:
     return [
         TriggeredAlertResponse(**alert)
         for alert in triggered_alerts
+    ]
+
+
+@app.get(
+    "/alerts/history",
+    response_model=list[AlertHistoryResponse],
+)
+def list_alert_history(
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[AlertHistoryResponse]:
+    return [
+        AlertHistoryResponse(**alert)
+        for alert in fetch_alert_history(limit=limit)
     ]
 
 @app.post(

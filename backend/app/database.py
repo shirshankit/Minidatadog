@@ -78,6 +78,17 @@ def initialize_database() -> None:
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
 
+        CREATE TABLE IF NOT EXISTS alert_history (
+            id BIGSERIAL PRIMARY KEY,
+            rule_id BIGINT NOT NULL REFERENCES alert_rules(id),
+            service_name TEXT NOT NULL,
+            metric TEXT NOT NULL,
+            operator TEXT NOT NULL,
+            threshold DOUBLE PRECISION NOT NULL,
+            current_value DOUBLE PRECISION NOT NULL,
+            triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
         CREATE TABLE IF NOT EXISTS application_logs (
             id BIGSERIAL PRIMARY KEY,
             service_name TEXT NOT NULL,
@@ -120,6 +131,9 @@ def initialize_database() -> None:
         CREATE INDEX IF NOT EXISTS application_logs_request_id_idx
         ON application_logs (request_id);
 
+        CREATE INDEX IF NOT EXISTS alert_history_triggered_at_idx
+        ON alert_history (triggered_at);
+
         CREATE INDEX IF NOT EXISTS trace_spans_started_at_idx
         ON trace_spans (started_at);
 
@@ -144,6 +158,7 @@ def cleanup_old_telemetry(retention_days: int = 5) -> dict[str, int]:
         "metrics": "DELETE FROM request_metrics WHERE recorded_at < %s",
         "logs": "DELETE FROM application_logs WHERE recorded_at < %s",
         "traces": "DELETE FROM trace_spans WHERE started_at < %s",
+        "alert_history": "DELETE FROM alert_history WHERE triggered_at < %s",
     }
     deleted: dict[str, int] = {}
 
@@ -462,19 +477,75 @@ def evaluate_alert_rules() -> list[dict[str, str | float | int | bool]]:
         )
 
         if is_triggered:
-            triggered_alerts.append(
-                {
-                    "id": int(alert_rule["id"]),
-                    "service_name": service_name,
-                    "metric": metric_name,
-                    "operator": operator,
-                    "threshold": threshold,
-                    "current_value": current_value,
-                    "triggered": True,
-                }
-            )
+            alert = {
+                "id": int(alert_rule["id"]),
+                "service_name": service_name,
+                "metric": metric_name,
+                "operator": operator,
+                "threshold": threshold,
+                "current_value": current_value,
+                "triggered": True,
+            }
+            triggered_alerts.append(alert)
+            record_alert_history(alert)
 
     return triggered_alerts
+
+
+def record_alert_history(
+    alert: dict[str, str | float | int | bool],
+) -> None:
+    query = """
+        INSERT INTO alert_history (
+            rule_id, service_name, metric, operator,
+            threshold, current_value
+        )
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                query,
+                (
+                    int(alert["id"]),
+                    str(alert["service_name"]),
+                    str(alert["metric"]),
+                    str(alert["operator"]),
+                    float(alert["threshold"]),
+                    float(alert["current_value"]),
+                ),
+            )
+        connection.commit()
+
+
+def fetch_alert_history(
+    limit: int = 50,
+) -> list[dict[str, str | float | int]]:
+    query = """
+        SELECT id, rule_id, service_name, metric, operator,
+               threshold, current_value, triggered_at
+        FROM alert_history
+        ORDER BY triggered_at DESC
+        LIMIT %s
+    """
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(query, (limit,))
+            rows = cursor.fetchall()
+
+    return [
+        {
+            "id": row[0],
+            "rule_id": row[1],
+            "service_name": row[2],
+            "metric": row[3],
+            "operator": row[4],
+            "threshold": float(row[5]),
+            "current_value": float(row[6]),
+            "triggered_at": row[7].isoformat(),
+        }
+        for row in rows
+    ]
 
 def create_application_log(
     service_name: str,

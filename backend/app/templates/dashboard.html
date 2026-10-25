@@ -250,6 +250,10 @@
             <p>No alert rules configured.</p>
         </div>
         <p id="alert-rule-message"></p>
+        <h3>Alert History</h3>
+        <div id="alert-history-container">
+            <p>No alert history yet.</p>
+        </div>
     </section>
 
     <h2>Request Duration Chart</h2>
@@ -752,6 +756,36 @@
             });
         }
 
+        async function loadAlertHistory() {
+            const response = await fetch("/alerts/history?limit=10");
+
+            if (!response.ok) {
+                throw new Error("Unable to load alert history");
+            }
+
+            const history = await response.json();
+            const historyContainer = document.getElementById(
+                "alert-history-container"
+            );
+            historyContainer.innerHTML = "";
+
+            if (history.length === 0) {
+                historyContainer.innerHTML = "<p>No alert history yet.</p>";
+                return;
+            }
+
+            history.forEach((entry) => {
+                const historyElement = document.createElement("div");
+                historyElement.className = "alert";
+                historyElement.textContent =
+                    `${entry.service_name}: ${entry.metric} ` +
+                    `${entry.operator} ${entry.threshold} ` +
+                    `(current: ${entry.current_value.toFixed(4)}) - ` +
+                    `${new Date(entry.triggered_at).toLocaleString()}`;
+                historyContainer.appendChild(historyElement);
+            });
+        }
+
         document
             .getElementById("alert-rule-form")
             .addEventListener("submit", async (event) => {
@@ -795,6 +829,7 @@
         loadMetrics();
         loadAlerts();
         loadAlertRules();
+        loadAlertHistory();
         loadLogs();
         loadTraces();
 
@@ -803,6 +838,7 @@
             loadMetrics();
             loadAlerts();
             loadAlertRules();
+            loadAlertHistory();
             loadLogs();
             loadTraces();
         }, 10000);

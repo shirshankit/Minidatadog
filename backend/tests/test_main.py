@@ -307,6 +307,7 @@ def test_dashboard_page_loads(client: TestClient) -> None:
     assert 'id="traces-page"' in response.text
     assert 'id="alert-rule-form"' in response.text
     assert 'id="alert-rules-container"' in response.text
+    assert 'id="alert-history-container"' in response.text
 
 def test_create_alert_rule(client: TestClient) -> None:
     response = client.post(
@@ -372,6 +373,29 @@ def test_disable_alert_rule(client: TestClient) -> None:
         for rule in client.get("/alerts/rules").json()
     )
     assert client.delete(f"/alerts/rules/{rule_id}").status_code == 404
+
+
+def test_alert_history_is_recorded_and_listed(client: TestClient) -> None:
+    client.get("/health")
+    client.post(
+        "/alerts/rules",
+        json={
+            "service_name": "demo-service",
+            "metric": "error_count",
+            "operator": ">",
+            "threshold": 0,
+        },
+    )
+    client.get("/alerts/triggered")
+
+    response = client.get("/alerts/history", params={"limit": 10})
+
+    assert response.status_code == 200
+    assert any(
+        entry["service_name"] == "demo-service"
+        and entry["metric"] == "error_count"
+        for entry in response.json()
+    )
 
 
 def test_triggered_alerts_include_matching_rule(
