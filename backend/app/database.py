@@ -1,4 +1,6 @@
 import os
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
@@ -151,6 +153,66 @@ def initialize_database() -> None:
 
         CREATE INDEX IF NOT EXISTS trace_spans_request_id_idx
         ON trace_spans (request_id);
+
+        CREATE TABLE IF NOT EXISTS external_projects (
+            id BIGSERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS external_api_keys (
+            id BIGSERIAL PRIMARY KEY,
+            project_id BIGINT NOT NULL REFERENCES external_projects(id)
+                ON DELETE CASCADE,
+            key_hash TEXT NOT NULL UNIQUE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            revoked_at TIMESTAMPTZ
+        );
+
+        CREATE TABLE IF NOT EXISTS external_metrics (
+            id BIGSERIAL PRIMARY KEY,
+            project_id BIGINT NOT NULL REFERENCES external_projects(id)
+                ON DELETE CASCADE,
+            service_name TEXT NOT NULL,
+            method TEXT NOT NULL,
+            path TEXT NOT NULL,
+            status_code INTEGER NOT NULL,
+            duration_ms DOUBLE PRECISION NOT NULL,
+            request_id TEXT,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS external_logs (
+            id BIGSERIAL PRIMARY KEY,
+            project_id BIGINT NOT NULL REFERENCES external_projects(id)
+                ON DELETE CASCADE,
+            service_name TEXT NOT NULL,
+            level TEXT NOT NULL,
+            message TEXT NOT NULL,
+            request_id TEXT,
+            recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE TABLE IF NOT EXISTS external_traces (
+            id BIGSERIAL PRIMARY KEY,
+            project_id BIGINT NOT NULL REFERENCES external_projects(id)
+                ON DELETE CASCADE,
+            request_id TEXT NOT NULL,
+            service_name TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            status_code INTEGER NOT NULL,
+            duration_ms DOUBLE PRECISION NOT NULL,
+            started_at TIMESTAMPTZ NOT NULL,
+            finished_at TIMESTAMPTZ NOT NULL,
+            parent_span_id TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS external_metrics_project_idx
+        ON external_metrics (project_id, recorded_at);
+        CREATE INDEX IF NOT EXISTS external_logs_project_idx
+        ON external_logs (project_id, recorded_at);
+        CREATE INDEX IF NOT EXISTS external_traces_project_idx
+        ON external_traces (project_id, started_at);
     """
     with pool.connection() as connection:
         with connection.cursor() as cursor:
@@ -179,6 +241,235 @@ def cleanup_old_telemetry(retention_days: int = 5) -> dict[str, int]:
         connection.commit()
 
     return deleted
+
+
+def _hash_api_key(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+
+def create_external_project(name: str) -> dict[str, str | int]:
+    api_key = f"mdg_{secrets.token_urlsafe(32)}"
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO external_projects (name)
+                VALUES (%s)
+                RETURNING id, name, created_at
+                """,
+                (name,),
+            )
+            project_id, project_name, created_at = cursor.fetchone()
+            cursor.execute(
+                """
+                INSERT INTO external_api_keys (project_id, key_hash)
+                VALUES (%s, %s)
+                """,
+                (project_id, _hash_api_key(api_key)),
+            )
+        connection.commit()
+    return {
+        "id": project_id,
+        "name": project_name,
+        "api_key": api_key,
+        "created_at": created_at.isoformat(),
+    }
+
+
+def get_external_project_id(api_key: str) -> int | None:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT project_id
+                FROM external_api_keys
+                WHERE key_hash = %s AND revoked_at IS NULL
+                """,
+                (_hash_api_key(api_key),),
+            )
+            row = cursor.fetchone()
+    return int(row[0]) if row else None
+
+
+def revoke_external_api_key(api_key: str) -> bool:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE external_api_keys
+                SET revoked_at = NOW()
+                WHERE key_hash = %s AND revoked_at IS NULL
+                """,
+                (_hash_api_key(api_key),),
+            )
+            updated = cursor.rowcount
+        connection.commit()
+    return updated == 1
+
+
+def ingest_external_metric(
+    project_id: int,
+    service_name: str,
+    method: str,
+    path: str,
+    status_code: int,
+    duration_ms: float,
+    request_id: str | None,
+) -> int:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO external_metrics (
+                    project_id, service_name, method, path, status_code,
+                    duration_ms, request_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    project_id, service_name, method, path, status_code,
+                    duration_ms, request_id,
+                ),
+            )
+            row = cursor.fetchone()
+        connection.commit()
+    return int(row[0])
+
+
+def ingest_external_log(
+    project_id: int,
+    service_name: str,
+    level: str,
+    message: str,
+    request_id: str | None,
+) -> int:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO external_logs (
+                    project_id, service_name, level, message, request_id
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (project_id, service_name, level, message, request_id),
+            )
+            row = cursor.fetchone()
+        connection.commit()
+    return int(row[0])
+
+
+def ingest_external_trace(
+    project_id: int,
+    request_id: str,
+    service_name: str,
+    operation: str,
+    status_code: int,
+    duration_ms: float,
+    started_at: datetime,
+    finished_at: datetime,
+    parent_span_id: str | None,
+) -> int:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO external_traces (
+                    project_id, request_id, service_name, operation,
+                    status_code, duration_ms, started_at, finished_at,
+                    parent_span_id
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    project_id, request_id, service_name, operation,
+                    status_code, duration_ms, started_at, finished_at,
+                    parent_span_id,
+                ),
+            )
+            row = cursor.fetchone()
+        connection.commit()
+    return int(row[0])
+
+
+def fetch_external_metrics(project_id: int, limit: int = 100) -> list[dict]:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, service_name, method, path, status_code,
+                       duration_ms, request_id, recorded_at
+                FROM external_metrics
+                WHERE project_id = %s
+                ORDER BY recorded_at DESC
+                LIMIT %s
+                """,
+                (project_id, limit),
+            )
+            rows = cursor.fetchall()
+    return [
+        {
+            "id": row[0], "service_name": row[1], "method": row[2],
+            "path": row[3], "status_code": row[4], "duration_ms": float(row[5]),
+            "request_id": row[6], "recorded_at": row[7].isoformat(),
+        }
+        for row in rows
+    ]
+
+
+def fetch_external_logs(project_id: int, limit: int = 100) -> list[dict]:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, service_name, level, message, request_id,
+                       recorded_at
+                FROM external_logs
+                WHERE project_id = %s
+                ORDER BY recorded_at DESC
+                LIMIT %s
+                """,
+                (project_id, limit),
+            )
+            rows = cursor.fetchall()
+    return [
+        {
+            "id": row[0], "service_name": row[1], "level": row[2],
+            "message": row[3], "request_id": row[4],
+            "recorded_at": row[5].isoformat(),
+        }
+        for row in rows
+    ]
+
+
+def fetch_external_traces(project_id: int, limit: int = 100) -> list[dict]:
+    with pool.connection() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, request_id, service_name, operation,
+                       status_code, duration_ms, started_at, finished_at,
+                       parent_span_id
+                FROM external_traces
+                WHERE project_id = %s
+                ORDER BY started_at DESC
+                LIMIT %s
+                """,
+                (project_id, limit),
+            )
+            rows = cursor.fetchall()
+    return [
+        {
+            "id": row[0], "request_id": row[1], "service_name": row[2],
+            "operation": row[3], "status_code": row[4],
+            "duration_ms": float(row[5]), "started_at": row[6].isoformat(),
+            "finished_at": row[7].isoformat(), "parent_span_id": row[8],
+        }
+        for row in rows
+    ]
 
 
 def save_metric(

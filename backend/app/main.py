@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.templating import Jinja2Templates
 
 from backend.app.database import (
@@ -21,6 +21,7 @@ from backend.app.database import (
     create_alert_rule,
     create_application_log,
     create_trace_span,
+    create_external_project,
     disable_alert_rule,
     evaluate_alert_rules,
     fetch_alert_rules,
@@ -30,6 +31,13 @@ from backend.app.database import (
     fetch_metrics_summary,
     fetch_trace_spans,
     fetch_trace_summary,
+    fetch_external_logs,
+    fetch_external_metrics,
+    fetch_external_traces,
+    get_external_project_id,
+    ingest_external_log,
+    ingest_external_metric,
+    ingest_external_trace,
     get_service_name,
     initialize_database,
     open_database_pool,
@@ -51,6 +59,12 @@ from backend.app.schemas import (
     TriggeredAlertResponse,
     TraceSpanResponse,
     TraceSummaryResponse,
+    ExternalLogCreate,
+    ExternalMetricCreate,
+    ExternalProjectCreate,
+    ExternalProjectResponse,
+    ExternalTraceCreate,
+    ExternalIngestResponse,
 )
 
 @asynccontextmanager
@@ -95,7 +109,11 @@ async def add_security_headers(request: Request, call_next):
 
 @app.middleware("http")
 async def require_basic_auth(request: Request, call_next):
-    if request.url.path == "/health":
+    if (
+        request.url.path == "/health"
+        or request.url.path.startswith("/api/v1/ingest")
+        or request.url.path.startswith("/api/v1/data")
+    ):
         return await call_next(request)
 
     username = os.getenv("MINIDATADOG_USERNAME")
@@ -143,6 +161,19 @@ async def require_basic_auth(request: Request, call_next):
         )
 
     return await call_next(request)
+
+
+def require_external_project(x_api_key: str | None) -> int:
+    if not x_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="X-API-Key header is required",
+        )
+    project_id = get_external_project_id(x_api_key)
+    if project_id is None:
+        raise HTTPException(status_code=401, detail="Invalid or revoked API key")
+    return project_id
+
 
 @app.middleware("http")
 async def measure_request_time(request: Request, call_next):
@@ -231,6 +262,111 @@ def database_health_check() -> dict[str, str]:
         "status": "ok",
         "database": "ok",
     }
+
+
+@app.post(
+    "/api/v1/projects",
+    response_model=ExternalProjectResponse,
+)
+def create_external_project_endpoint(
+    project: ExternalProjectCreate,
+) -> ExternalProjectResponse:
+    return ExternalProjectResponse(**create_external_project(project.name))
+
+
+@app.post(
+    "/api/v1/ingest/metrics",
+    response_model=ExternalIngestResponse,
+)
+def ingest_metric_endpoint(
+    metric: ExternalMetricCreate,
+    x_api_key: str | None = Header(default=None),
+) -> ExternalIngestResponse:
+    project_id = require_external_project(x_api_key)
+    return ExternalIngestResponse(
+        id=ingest_external_metric(
+            project_id=project_id,
+            service_name=metric.service_name,
+            method=metric.method,
+            path=metric.path,
+            status_code=metric.status_code,
+            duration_ms=metric.duration_ms,
+            request_id=metric.request_id,
+        )
+    )
+
+
+@app.post(
+    "/api/v1/ingest/logs",
+    response_model=ExternalIngestResponse,
+)
+def ingest_log_endpoint(
+    log: ExternalLogCreate,
+    x_api_key: str | None = Header(default=None),
+) -> ExternalIngestResponse:
+    project_id = require_external_project(x_api_key)
+    return ExternalIngestResponse(
+        id=ingest_external_log(
+            project_id=project_id,
+            service_name=log.service_name,
+            level=log.level,
+            message=log.message,
+            request_id=log.request_id,
+        )
+    )
+
+
+@app.post(
+    "/api/v1/ingest/traces",
+    response_model=ExternalIngestResponse,
+)
+def ingest_trace_endpoint(
+    trace: ExternalTraceCreate,
+    x_api_key: str | None = Header(default=None),
+) -> ExternalIngestResponse:
+    if trace.finished_at < trace.started_at:
+        raise HTTPException(
+            status_code=422,
+            detail="finished_at must be after started_at",
+        )
+    project_id = require_external_project(x_api_key)
+    return ExternalIngestResponse(
+        id=ingest_external_trace(
+            project_id=project_id,
+            request_id=trace.request_id,
+            service_name=trace.service_name,
+            operation=trace.operation,
+            status_code=trace.status_code,
+            duration_ms=trace.duration_ms,
+            started_at=trace.started_at,
+            finished_at=trace.finished_at,
+            parent_span_id=trace.parent_span_id,
+        )
+    )
+
+
+@app.get("/api/v1/data/metrics")
+def list_external_metrics(
+    limit: int = Query(default=100, ge=1, le=500),
+    x_api_key: str | None = Header(default=None),
+) -> list[dict]:
+    return fetch_external_metrics(require_external_project(x_api_key), limit)
+
+
+@app.get("/api/v1/data/logs")
+def list_external_logs(
+    limit: int = Query(default=100, ge=1, le=500),
+    x_api_key: str | None = Header(default=None),
+) -> list[dict]:
+    return fetch_external_logs(require_external_project(x_api_key), limit)
+
+
+@app.get("/api/v1/data/traces")
+def list_external_traces(
+    limit: int = Query(default=100, ge=1, le=500),
+    x_api_key: str | None = Header(default=None),
+) -> list[dict]:
+    return fetch_external_traces(require_external_project(x_api_key), limit)
 
 @app.post(
     "/alerts/rules",

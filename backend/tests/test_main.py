@@ -109,6 +109,85 @@ def test_unique_test_endpoint_validates_label(
     assert response.status_code == 422
 
 
+def test_external_project_can_ingest_isolated_telemetry(
+    client: TestClient,
+) -> None:
+    project_response = client.post(
+        "/api/v1/projects",
+        json={"name": "friend-shop"},
+    )
+
+    assert project_response.status_code == 200
+    project = project_response.json()
+    api_key = project["api_key"]
+    headers = {"X-API-Key": api_key}
+
+    metric_response = client.post(
+        "/api/v1/ingest/metrics",
+        headers=headers,
+        json={
+            "service_name": "friend-shop-api",
+            "method": "GET",
+            "path": "/orders",
+            "status_code": 200,
+            "duration_ms": 42.5,
+            "request_id": "friend-request-1",
+        },
+    )
+    log_response = client.post(
+        "/api/v1/ingest/logs",
+        headers=headers,
+        json={
+            "service_name": "friend-shop-api",
+            "level": "INFO",
+            "message": "Order request completed",
+            "request_id": "friend-request-1",
+        },
+    )
+    trace_response = client.post(
+        "/api/v1/ingest/traces",
+        headers=headers,
+        json={
+            "request_id": "friend-request-1",
+            "service_name": "friend-shop-api",
+            "operation": "GET /orders",
+            "status_code": 200,
+            "duration_ms": 42.5,
+            "started_at": "2026-01-01T12:00:00Z",
+            "finished_at": "2026-01-01T12:00:00.042500Z",
+        },
+    )
+
+    assert metric_response.status_code == 200
+    assert log_response.status_code == 200
+    assert trace_response.status_code == 200
+    assert client.get(
+        "/api/v1/data/metrics",
+        headers=headers,
+    ).json()[0]["service_name"] == "friend-shop-api"
+    assert client.get("/api/v1/data/logs", headers=headers).json()[0][
+        "request_id"
+    ] == "friend-request-1"
+    assert client.get("/api/v1/data/traces", headers=headers).json()[0][
+        "request_id"
+    ] == "friend-request-1"
+
+
+def test_external_ingestion_requires_a_valid_api_key(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/v1/ingest/logs",
+        json={
+            "service_name": "unknown",
+            "level": "INFO",
+            "message": "Should be rejected",
+        },
+    )
+
+    assert response.status_code == 401
+
+
 def test_request_includes_process_time(client: TestClient) -> None:
     response = client.get("/health")
 

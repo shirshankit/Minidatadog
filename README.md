@@ -61,6 +61,13 @@ over HTTPS.
 | `GET /health/database` | PostgreSQL health |
 | `GET /dashboard` | Observability dashboard |
 | `GET /test/unique` | Create a uniquely identified remote test event |
+| `POST /api/v1/projects` | Create an external application project and API key |
+| `POST /api/v1/ingest/metrics` | Ingest a metric from an external application |
+| `POST /api/v1/ingest/logs` | Ingest a log from an external application |
+| `POST /api/v1/ingest/traces` | Ingest a trace span from an external application |
+| `GET /api/v1/data/metrics` | Read the authenticated project's metrics |
+| `GET /api/v1/data/logs` | Read the authenticated project's logs |
+| `GET /api/v1/data/traces` | Read the authenticated project's traces |
 | `GET /metrics` | Request metrics with filters and pagination |
 | `GET /logs` | Structured logs with filters and pagination |
 | `GET /traces` | Request trace spans with filters and pagination |
@@ -78,6 +85,39 @@ To create a new test event from another location, open
 `/test/unique?label=friend-location` or call it with `curl`. The response
 contains a unique `event_id`; the request itself also creates a metric, log,
 and trace with its own `X-Request-ID`.
+
+### External application monitoring
+
+Create a project from an authenticated owner account:
+
+```bash
+curl -u "$MINIDATADOG_USERNAME:$MINIDATADOG_PASSWORD" \
+  -X POST https://minidatadog.onrender.com/api/v1/projects \
+  -H "Content-Type: application/json" \
+  -d '{"name":"friend-shop"}'
+```
+
+The response contains an API key. Store it securely; it is only returned when
+the project is created. External applications send the key in the
+`X-API-Key` header:
+
+```bash
+curl -X POST https://minidatadog.onrender.com/api/v1/ingest/metrics \
+  -H "X-API-Key: mdg_your_project_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "service_name":"friend-shop-api",
+    "method":"GET",
+    "path":"/orders",
+    "status_code":200,
+    "duration_ms":42.5,
+    "request_id":"order-request-1"
+  }'
+```
+
+The key scopes every ingestion and read request to one project, so one
+application cannot read another application's telemetry. API keys are stored
+as hashes, not plaintext.
 
 Logs submitted through `POST /logs` may include `request_id` to correlate an
 application log with an existing request trace.

@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -100,3 +101,46 @@ class TraceSummaryResponse(BaseModel):
     duration_ms: float
     started_at: str
     finished_at: str
+
+
+class ExternalProjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class ExternalProjectResponse(BaseModel):
+    id: int
+    name: str
+    api_key: str
+    created_at: str
+
+
+class ExternalMetricCreate(BaseModel):
+    service_name: str = Field(min_length=1, max_length=120)
+    method: str = Field(min_length=1, max_length=20)
+    path: str = Field(min_length=1, max_length=500)
+    status_code: int = Field(ge=100, le=599)
+    duration_ms: float = Field(ge=0)
+    request_id: str | None = Field(default=None, min_length=1)
+
+
+class ExternalLogCreate(BaseModel):
+    service_name: str = Field(min_length=1, max_length=120)
+    level: Literal["INFO", "WARNING", "ERROR"]
+    message: str = Field(min_length=1, max_length=4000)
+    request_id: str | None = Field(default=None, min_length=1)
+
+
+class ExternalTraceCreate(BaseModel):
+    request_id: str = Field(min_length=1, max_length=120)
+    service_name: str = Field(min_length=1, max_length=120)
+    operation: str = Field(min_length=1, max_length=500)
+    status_code: int = Field(ge=100, le=599)
+    duration_ms: float = Field(ge=0)
+    started_at: datetime
+    finished_at: datetime
+    parent_span_id: str | None = Field(default=None, min_length=1)
+
+
+class ExternalIngestResponse(BaseModel):
+    id: int
+    status: Literal["accepted"] = "accepted"
