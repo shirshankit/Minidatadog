@@ -169,6 +169,31 @@
             min-width: 56px;
             text-align: center;
         }
+
+        .trace-span {
+            margin: 8px 0;
+            padding: 10px;
+            border-left: 4px solid #2563eb;
+            border-radius: 4px;
+            background: #eff6ff;
+        }
+
+        .trace-span-child {
+            margin-left: 24px;
+            border-left-color: #7c3aed;
+            background: #f5f3ff;
+        }
+
+        .trace-span-bar {
+            height: 6px;
+            margin-top: 8px;
+            border-radius: 4px;
+            background: #2563eb;
+        }
+
+        .trace-span-child .trace-span-bar {
+            background: #7c3aed;
+        }
     </style>
 </head>
 
@@ -689,17 +714,30 @@
 
                     traces.forEach((trace) => {
                         const detail = document.createElement("div");
-                        detail.className = "alert";
+                        detail.className = "trace-span";
                         if (trace.parent_span_id !== null) {
-                            detail.style.marginLeft = "24px";
+                            detail.classList.add("trace-span-child");
                         }
-                        detail.textContent =
+                        const label = document.createElement("div");
+                        label.textContent =
                             `${trace.parent_span_id !== null ? "↳ " : ""}` +
                             `${trace.operation} — ${trace.status_code} — ` +
                             `${trace.duration_ms.toFixed(2)} ms — ` +
                             `${new Date(
                                 trace.started_at
                             ).toLocaleString()}`;
+                        const bar = document.createElement("div");
+                        bar.className = "trace-span-bar";
+                        const rootDuration = Math.max(
+                            ...traces.map((item) => item.duration_ms),
+                            1
+                        );
+                        bar.style.width = `${Math.max(
+                            5,
+                            (trace.duration_ms / rootDuration) * 100
+                        )}%`;
+                        detail.appendChild(label);
+                        detail.appendChild(bar);
                         detailsContainer.appendChild(detail);
                     });
                 } catch (error) {

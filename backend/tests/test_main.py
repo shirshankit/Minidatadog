@@ -321,6 +321,7 @@ def test_dashboard_page_loads(client: TestClient) -> None:
     assert 'id="alert-history-container"' in response.text
     assert 'id="trace-search-form"' in response.text
     assert 'id="trace-details-container"' in response.text
+    assert "trace-span-bar" in response.text
 
 
 def test_trace_details_can_be_found_by_request_id(
