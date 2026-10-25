@@ -34,6 +34,7 @@ from backend.app.database import (
 )
 
 from backend.app.metrics import record_metric
+from backend.app.notifications import notify_triggered_alerts
 
 
 from backend.app.schemas import (
@@ -246,9 +247,11 @@ def list_alert_rules() -> list[AlertRuleResponse]:
     response_model=list[TriggeredAlertResponse],
 )
 def list_triggered_alerts() -> list[TriggeredAlertResponse]:
+    triggered_alerts = evaluate_alert_rules()
+    notify_triggered_alerts(triggered_alerts)
     return [
         TriggeredAlertResponse(**alert)
-        for alert in evaluate_alert_rules()
+        for alert in triggered_alerts
     ]
 
 @app.post(

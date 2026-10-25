@@ -6,6 +6,10 @@ from fastapi.testclient import TestClient
 
 from backend.app.database import cleanup_old_telemetry, pool
 from backend.app.main import app
+from backend.app.notifications import (
+    clear_notification_state,
+    notify_triggered_alerts,
+)
 
 
 @pytest.fixture(scope="module")
@@ -374,6 +378,48 @@ def test_triggered_alerts_include_matching_rule(
         and alert["triggered"] is True
         for alert in triggered_alerts
     )
+
+
+def test_alert_webhook_notification_respects_cooldown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[object] = []
+
+    class FakeResponse:
+        status = 204
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return FakeResponse()
+
+    monkeypatch.setenv("ALERT_WEBHOOK_URL", "https://example.test/hook")
+    monkeypatch.setenv("ALERT_COOLDOWN_SECONDS", "900")
+    monkeypatch.setattr(
+        "backend.app.notifications.urlopen",
+        fake_urlopen,
+    )
+    clear_notification_state()
+
+    alert = {
+        "id": 987654,
+        "service_name": "demo-service",
+        "metric": "error_count",
+        "operator": ">",
+        "threshold": 0.0,
+        "current_value": 1.0,
+        "triggered": True,
+    }
+
+    assert notify_triggered_alerts([alert]) == 1
+    assert notify_triggered_alerts([alert]) == 0
+    assert len(requests) == 1
+    clear_notification_state()
 def test_create_alert_rule_rejects_invalid_metric(
     client: TestClient,
 ) -> None:

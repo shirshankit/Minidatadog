@@ -32,9 +32,15 @@ The application reads these environment variables:
 | `MINIDATADOG_USERNAME` | Optional Basic Authentication username | disabled |
 | `MINIDATADOG_PASSWORD` | Optional Basic Authentication password | disabled |
 | `FORCE_HTTPS` | Adds HSTS headers when set to `true` behind HTTPS | disabled |
+| `ALERT_WEBHOOK_URL` | Optional webhook URL for triggered alerts | disabled |
+| `ALERT_COOLDOWN_SECONDS` | Minimum time between notifications for one rule | `900` |
 
 Old telemetry is cleaned automatically during application startup according to
 `TELEMETRY_RETENTION_DAYS`. The value must be a positive integer.
+
+When `ALERT_WEBHOOK_URL` is configured, the application sends a JSON `POST`
+notification when a rule is triggered. Notifications are disabled by default
+and are limited by `ALERT_COOLDOWN_SECONDS` (15 minutes by default).
 
 The API adds security headers by default, including clickjacking protection,
 MIME-sniffing protection, a restrictive referrer policy, and a Content Security
