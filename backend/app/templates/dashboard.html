@@ -671,7 +671,23 @@
 
                     values.forEach((value) => {
                         const cell = document.createElement("td");
-                        cell.textContent = value;
+                        if (value === trace.request_id) {
+                            const link = document.createElement("a");
+                            link.href = "#trace-details-container";
+                            link.textContent = value;
+                            link.addEventListener("click", async (event) => {
+                                event.preventDefault();
+                                document.getElementById(
+                                    "trace-request-id"
+                                ).value = trace.request_id;
+                                document.getElementById(
+                                    "trace-search-form"
+                                ).requestSubmit();
+                            });
+                            cell.appendChild(link);
+                        } else {
+                            cell.textContent = value;
+                        }
                         row.appendChild(cell);
                     });
 

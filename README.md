@@ -79,6 +79,9 @@ Trace rows include a request ID. Paste that ID into the dashboard's
 timeline has a root HTTP span and a child request-processing span linked by
 `parent_span_id`.
 
+Request IDs in the Recent Traces table are clickable shortcuts to the
+corresponding trace timeline.
+
 Alert rules can be created and disabled from the dashboard. To test an alert,
 create a rule for `demo-service`, trigger `/simulate-error`, and refresh the
 dashboard. To test resolution, use a threshold that can move from true to
