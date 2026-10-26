@@ -98,3 +98,4 @@ Run directly using the project virtual environment:
 1. **Connection Pooling Efficiency**: PostgreSQL connection pooling via `psycopg_pool.ConnectionPool` kept database latency stable even under concurrent write spikes.
 2. **Batch Ingestion Advantage**: Batch ingestion endpoints (`/api/v1/ingest/*/batch`) reduced database connection round-trips by up to 60% compared to individual single-point posts.
 3. **In-Memory Rate Limiting**: The thread-safe sliding-window rate limiter intercepted unauthorized or excessive calls in sub-millisecond time without hitting PostgreSQL.
+

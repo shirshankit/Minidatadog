@@ -138,18 +138,34 @@
         }
 
         .chart-container {
-            margin-top: 20px;
-            padding: 20px;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 6px rgb(0 0 0 / 10%);
-            overflow-x: auto;
+            margin-top: 14px;
+            padding: 18px 20px;
+            background: rgb(23 32 51 / 85%);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
         }
 
-        #duration-chart {
+        #duration-chart,
+        #throughput-chart,
+        #external-metrics-chart {
             width: 100%;
-            min-width: 600px;
-            height: 280px;
+            height: 230px;
+            display: block;
+        }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            margin-top: 14px;
+        }
+
+        @media (max-width: 900px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .pagination {
@@ -759,9 +775,30 @@
 
     <section class="dashboard-section" id="performance-section">
         <h2>Performance</h2>
-        <p class="section-kicker">Request duration over the latest collected metrics.</p>
-        <div class="chart-container">
-            <canvas id="duration-chart"></canvas>
+        <p class="section-kicker">Request duration over the latest collected metrics and live throughput distribution.</p>
+        <div class="charts-grid">
+            <div class="chart-container">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <h3 style="margin:0; font-size:13px; color:#cbd8eb; text-transform:uppercase; letter-spacing:0.05em;">Request Latency & Percentiles</h3>
+                    <div style="display:flex; gap:12px; font-size:11px;">
+                        <span style="color:#38bdf8; font-weight:600;">● Latency</span>
+                        <span style="color:#a855f7; font-weight:600;">- - P95</span>
+                        <span style="color:#64748b; font-weight:600;">- - P50</span>
+                    </div>
+                </div>
+                <canvas id="duration-chart"></canvas>
+            </div>
+            <div class="chart-container">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <h3 style="margin:0; font-size:13px; color:#cbd8eb; text-transform:uppercase; letter-spacing:0.05em;">Throughput & Status Breakdown</h3>
+                    <div style="display:flex; gap:12px; font-size:11px;">
+                        <span style="color:#10b981; font-weight:600;">■ 2xx OK</span>
+                        <span style="color:#f59e0b; font-weight:600;">■ 4xx Client</span>
+                        <span style="color:#ef4444; font-weight:600;">■ 5xx Error</span>
+                    </div>
+                </div>
+                <canvas id="throughput-chart"></canvas>
+            </div>
         </div>
     </section>
 
@@ -902,6 +939,14 @@
             </div>
         </div>
 
+        <div id="external-metrics-chart-container" class="chart-container" style="display: none; margin: 16px 0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="margin:0; font-size:13px; color:#cbd8eb; text-transform:uppercase; letter-spacing:0.05em;">External Project Latency Trend</h3>
+                <span style="color:#38bdf8; font-size:11px; font-weight:600;">● Response Duration (ms)</span>
+            </div>
+            <canvas id="external-metrics-chart"></canvas>
+        </div>
+
         <div id="external-project-data">
             <div class="external-data-card">
                 <h3>Metrics</h3>
@@ -1017,6 +1062,9 @@
                     element.textContent = JSON.stringify(payloads[index], null, 2);
                 }
             });
+            if (payloads[0] && Array.isArray(payloads[0])) {
+                drawExternalMetricsChart(payloads[0]);
+            }
         }
 
         document
@@ -1152,11 +1200,22 @@
             }
         }
 
+        let lastLoadedMetrics = [];
+
+        function calcPercentile(numbers, p) {
+            if (!numbers || numbers.length === 0) return 0;
+            const sorted = [...numbers].sort((a, b) => a - b);
+            const index = Math.min(Math.floor((p / 100) * sorted.length), sorted.length - 1);
+            return sorted[index];
+        }
+
         function drawDurationChart(metrics) {
+            lastLoadedMetrics = metrics || [];
             const canvas = document.getElementById("duration-chart");
+            if (!canvas) return;
             const context = canvas.getContext("2d");
-            const width = canvas.clientWidth;
-            const height = 280;
+            const width = canvas.clientWidth || 400;
+            const height = 230;
             const pixelRatio = window.devicePixelRatio || 1;
 
             canvas.width = width * pixelRatio;
@@ -1164,68 +1223,318 @@
             context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
             context.clearRect(0, 0, width, height);
 
-            if (metrics.length === 0) {
-                context.fillStyle = "#6b7280";
-                context.font = "16px Arial";
-                context.fillText(
-                    "No request data available",
-                    20,
-                    40
-                );
+            if (!metrics || metrics.length === 0) {
+                context.fillStyle = "#64748b";
+                context.font = "13px ui-sans-serif, system-ui, sans-serif";
+                context.fillText("No request telemetry available yet", 20, 40);
                 return;
             }
 
-            const chartMetrics = metrics.slice(-20);
-            const maximumDuration = Math.max(
-                ...chartMetrics.map((metric) => metric.duration_ms),
-                1
-            );
-            const leftPadding = 50;
+            const chartMetrics = [...metrics].slice(-25);
+            const durations = chartMetrics.map((m) => m.duration_ms);
+            const maxDuration = Math.max(...durations, 1.0) * 1.15;
+            const p50 = calcPercentile(durations, 50);
+            const p95 = calcPercentile(durations, 95);
+
+            const leftPadding = 55;
             const rightPadding = 20;
             const topPadding = 20;
-            const bottomPadding = 40;
-            const chartWidth = width - leftPadding - rightPadding;
-            const chartHeight = height - topPadding - bottomPadding;
+            const bottomPadding = 35;
+            const chartWidth = Math.max(width - leftPadding - rightPadding, 10);
+            const chartHeight = Math.max(height - topPadding - bottomPadding, 10);
             const xAxis = height - bottomPadding;
 
-            context.strokeStyle = "#d1d5db";
+            // Background subtle grid lines
+            context.strokeStyle = "rgba(255, 255, 255, 0.06)";
+            context.lineWidth = 1;
+            for (let i = 0; i <= 4; i++) {
+                const y = topPadding + (i / 4) * chartHeight;
+                context.beginPath();
+                context.moveTo(leftPadding, y);
+                context.lineTo(width - rightPadding, y);
+                context.stroke();
+
+                const val = maxDuration - (i / 4) * maxDuration;
+                context.fillStyle = "#64748b";
+                context.font = "10px ui-monospace, monospace";
+                context.textAlign = "right";
+                context.fillText(`${val.toFixed(1)}ms`, leftPadding - 8, y + 3);
+            }
+
+            // Draw P50 reference line (dashed gray)
+            const yP50 = xAxis - (p50 / maxDuration) * chartHeight;
+            context.save();
+            context.setLineDash([4, 4]);
+            context.strokeStyle = "#64748b";
+            context.beginPath();
+            context.moveTo(leftPadding, yP50);
+            context.lineTo(width - rightPadding, yP50);
+            context.stroke();
+            context.restore();
+
+            // Draw P95 reference line (dashed purple)
+            const yP95 = xAxis - (p95 / maxDuration) * chartHeight;
+            context.save();
+            context.setLineDash([4, 4]);
+            context.strokeStyle = "#a855f7";
+            context.beginPath();
+            context.moveTo(leftPadding, yP95);
+            context.lineTo(width - rightPadding, yP95);
+            context.stroke();
+            context.restore();
+
+            // Coordinates for points
+            const points = chartMetrics.map((metric, index) => {
+                const x = leftPadding + (index / Math.max(chartMetrics.length - 1, 1)) * chartWidth;
+                const y = xAxis - (metric.duration_ms / maxDuration) * chartHeight;
+                return { x, y, metric };
+            });
+
+            // Gradient Area Fill under line
+            const gradient = context.createLinearGradient(0, topPadding, 0, xAxis);
+            gradient.addColorStop(0, "rgba(56, 189, 248, 0.35)");
+            gradient.addColorStop(1, "rgba(56, 189, 248, 0.0)");
+
+            context.beginPath();
+            points.forEach((pt, idx) => {
+                if (idx === 0) context.moveTo(pt.x, xAxis);
+                context.lineTo(pt.x, pt.y);
+            });
+            context.lineTo(points[points.length - 1].x, xAxis);
+            context.closePath();
+            context.fillStyle = gradient;
+            context.fill();
+
+            // Primary Latency Line (Sky blue glow)
+            context.beginPath();
+            context.strokeStyle = "#38bdf8";
+            context.lineWidth = 2.5;
+            context.lineJoin = "round";
+            points.forEach((pt, idx) => {
+                if (idx === 0) context.moveTo(pt.x, pt.y);
+                else context.lineTo(pt.x, pt.y);
+            });
+            context.stroke();
+
+            // Circular Glowing Data Points
+            points.forEach((pt) => {
+                context.beginPath();
+                context.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+                context.fillStyle = "#0f172a";
+                context.fill();
+                context.strokeStyle = "#38bdf8";
+                context.lineWidth = 2;
+                context.stroke();
+            });
+
+            // Bottom axis line
+            context.strokeStyle = "rgba(255, 255, 255, 0.15)";
             context.lineWidth = 1;
             context.beginPath();
-            context.moveTo(leftPadding, topPadding);
-            context.lineTo(leftPadding, xAxis);
+            context.moveTo(leftPadding, xAxis);
             context.lineTo(width - rightPadding, xAxis);
             context.stroke();
 
-            context.fillStyle = "#6b7280";
-            context.font = "12px Arial";
-            context.fillText(
-                `${maximumDuration.toFixed(2)} ms`,
-                4,
-                topPadding + 4
-            );
-            context.fillText("0 ms", 14, xAxis);
+            // Bottom labels
+            context.fillStyle = "#64748b";
+            context.font = "10px ui-sans-serif, system-ui, sans-serif";
+            context.textAlign = "left";
+            context.fillText("Recent History", leftPadding, height - 12);
+            context.textAlign = "right";
+            context.fillText("Latest Sample", width - rightPadding, height - 12);
+        }
 
-            context.strokeStyle = "#2563eb";
-            context.lineWidth = 2;
-            context.beginPath();
+        function drawThroughputChart(metrics) {
+            const canvas = document.getElementById("throughput-chart");
+            if (!canvas) return;
+            const context = canvas.getContext("2d");
+            const width = canvas.clientWidth || 400;
+            const height = 230;
+            const pixelRatio = window.devicePixelRatio || 1;
 
-            chartMetrics.forEach((metric, index) => {
-                const x = leftPadding + (
-                    index / Math.max(chartMetrics.length - 1, 1)
-                ) * chartWidth;
-                const y = xAxis - (
-                    metric.duration_ms / maximumDuration
-                ) * chartHeight;
+            canvas.width = width * pixelRatio;
+            canvas.height = height * pixelRatio;
+            context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+            context.clearRect(0, 0, width, height);
 
-                if (index === 0) {
-                    context.moveTo(x, y);
+            if (!metrics || metrics.length === 0) {
+                context.fillStyle = "#64748b";
+                context.font = "13px ui-sans-serif, system-ui, sans-serif";
+                context.fillText("No throughput data available", 20, 40);
+                return;
+            }
+
+            const chartMetrics = [...metrics].slice(-25);
+            const leftPadding = 45;
+            const rightPadding = 20;
+            const topPadding = 20;
+            const bottomPadding = 35;
+            const chartWidth = Math.max(width - leftPadding - rightPadding, 10);
+            const chartHeight = Math.max(height - topPadding - bottomPadding, 10);
+            const xAxis = height - bottomPadding;
+
+            const maxDuration = Math.max(...chartMetrics.map((m) => m.duration_ms), 1.0) * 1.1;
+
+            // Background subtle grid lines
+            context.strokeStyle = "rgba(255, 255, 255, 0.06)";
+            context.lineWidth = 1;
+            for (let i = 0; i <= 3; i++) {
+                const y = topPadding + (i / 3) * chartHeight;
+                context.beginPath();
+                context.moveTo(leftPadding, y);
+                context.lineTo(width - rightPadding, y);
+                context.stroke();
+            }
+
+            // Bar dimensions
+            const slotWidth = chartWidth / chartMetrics.length;
+            const barWidth = Math.max(slotWidth * 0.65, 4);
+
+            chartMetrics.forEach((m, idx) => {
+                const x = leftPadding + idx * slotWidth + (slotWidth - barWidth) / 2;
+                const barH = Math.max((m.duration_ms / maxDuration) * chartHeight, 4);
+                const y = xAxis - barH;
+
+                let color = "#10b981"; // 2xx
+                if (m.status_code >= 500) color = "#ef4444"; // 5xx
+                else if (m.status_code >= 400) color = "#f59e0b"; // 4xx
+
+                context.fillStyle = color;
+                context.beginPath();
+                if (context.roundRect) {
+                    context.roundRect(x, y, barWidth, barH, [3, 3, 0, 0]);
                 } else {
-                    context.lineTo(x, y);
+                    context.rect(x, y, barWidth, barH);
                 }
+                context.fill();
             });
 
+            // Bottom axis line
+            context.strokeStyle = "rgba(255, 255, 255, 0.15)";
+            context.lineWidth = 1;
+            context.beginPath();
+            context.moveTo(leftPadding, xAxis);
+            context.lineTo(width - rightPadding, xAxis);
             context.stroke();
+
+            // Status distribution counts
+            const count2xx = chartMetrics.filter((m) => m.status_code < 400).length;
+            const count4xx = chartMetrics.filter((m) => m.status_code >= 400 && m.status_code < 500).length;
+            const count5xx = chartMetrics.filter((m) => m.status_code >= 500).length;
+
+            context.fillStyle = "#94a3b8";
+            context.font = "11px ui-sans-serif, system-ui, sans-serif";
+            context.textAlign = "left";
+            context.fillText(`Window: ${chartMetrics.length} requests | 2xx: ${count2xx} | 4xx: ${count4xx} | 5xx: ${count5xx}`, leftPadding, height - 12);
         }
+
+        function drawExternalMetricsChart(metrics) {
+            const container = document.getElementById("external-metrics-chart-container");
+            const canvas = document.getElementById("external-metrics-chart");
+            if (!container || !canvas) return;
+
+            if (!metrics || metrics.length === 0) {
+                container.style.display = "none";
+                return;
+            }
+
+            container.style.display = "block";
+            const context = canvas.getContext("2d");
+            const width = canvas.clientWidth || 400;
+            const height = 200;
+            const pixelRatio = window.devicePixelRatio || 1;
+
+            canvas.width = width * pixelRatio;
+            canvas.height = height * pixelRatio;
+            context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+            context.clearRect(0, 0, width, height);
+
+            const chartMetrics = [...metrics].reverse();
+            const durations = chartMetrics.map((m) => m.duration_ms);
+            const maxDuration = Math.max(...durations, 1.0) * 1.15;
+
+            const leftPadding = 50;
+            const rightPadding = 20;
+            const topPadding = 15;
+            const bottomPadding = 30;
+            const chartWidth = Math.max(width - leftPadding - rightPadding, 10);
+            const chartHeight = Math.max(height - topPadding - bottomPadding, 10);
+            const xAxis = height - bottomPadding;
+
+            context.strokeStyle = "rgba(255, 255, 255, 0.06)";
+            context.lineWidth = 1;
+            for (let i = 0; i <= 3; i++) {
+                const y = topPadding + (i / 3) * chartHeight;
+                context.beginPath();
+                context.moveTo(leftPadding, y);
+                context.lineTo(width - rightPadding, y);
+                context.stroke();
+
+                const val = maxDuration - (i / 3) * maxDuration;
+                context.fillStyle = "#64748b";
+                context.font = "10px ui-monospace, monospace";
+                context.textAlign = "right";
+                context.fillText(`${val.toFixed(1)}ms`, leftPadding - 6, y + 3);
+            }
+
+            const points = chartMetrics.map((metric, index) => {
+                const x = leftPadding + (index / Math.max(chartMetrics.length - 1, 1)) * chartWidth;
+                const y = xAxis - (metric.duration_ms / maxDuration) * chartHeight;
+                return { x, y, metric };
+            });
+
+            const gradient = context.createLinearGradient(0, topPadding, 0, xAxis);
+            gradient.addColorStop(0, "rgba(99, 102, 241, 0.35)");
+            gradient.addColorStop(1, "rgba(99, 102, 241, 0.0)");
+
+            context.beginPath();
+            points.forEach((pt, idx) => {
+                if (idx === 0) context.moveTo(pt.x, xAxis);
+                context.lineTo(pt.x, pt.y);
+            });
+            context.lineTo(points[points.length - 1].x, xAxis);
+            context.closePath();
+            context.fillStyle = gradient;
+            context.fill();
+
+            context.beginPath();
+            context.strokeStyle = "#818cf8";
+            context.lineWidth = 2.5;
+            points.forEach((pt, idx) => {
+                if (idx === 0) context.moveTo(pt.x, pt.y);
+                else context.lineTo(pt.x, pt.y);
+            });
+            context.stroke();
+
+            points.forEach((pt) => {
+                context.beginPath();
+                context.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+                context.fillStyle = "#0f172a";
+                context.fill();
+                context.strokeStyle = "#818cf8";
+                context.lineWidth = 2;
+                context.stroke();
+            });
+
+            context.strokeStyle = "rgba(255, 255, 255, 0.15)";
+            context.lineWidth = 1;
+            context.beginPath();
+            context.moveTo(leftPadding, xAxis);
+            context.lineTo(width - rightPadding, xAxis);
+            context.stroke();
+
+            context.fillStyle = "#94a3b8";
+            context.font = "10px ui-sans-serif, system-ui, sans-serif";
+            context.textAlign = "left";
+            context.fillText(`Ingested Samples: ${chartMetrics.length} requests`, leftPadding, height - 10);
+        }
+
+        window.addEventListener("resize", () => {
+            if (lastLoadedMetrics && lastLoadedMetrics.length > 0) {
+                drawDurationChart(lastLoadedMetrics);
+                drawThroughputChart(lastLoadedMetrics);
+            }
+        });
 
         async function loadMetrics() {
             const serviceName = document
@@ -1250,6 +1559,7 @@
 
             const metrics = await response.json();
             drawDurationChart(metrics);
+            drawThroughputChart(metrics);
             const tableBody = document.getElementById(
                 "metrics-table-body"
             );

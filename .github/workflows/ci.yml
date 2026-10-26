@@ -67,3 +67,4 @@ jobs:
           context: .
           push: false
           tags: minidatadog:ci-check
+

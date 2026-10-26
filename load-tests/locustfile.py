@@ -143,3 +143,4 @@ class MiniDatadogTrafficUser(HttpUser):
             },
             name="[Ingest] Single Trace",
         )
+
