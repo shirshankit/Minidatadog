@@ -152,3 +152,4 @@ curl -i -s "${BASE_URL}/api/v1/data/metrics" \
   -H "X-API-Key: ${API_KEY}" | head -n 1
 echo ""
 echo "Done!"
+

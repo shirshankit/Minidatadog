@@ -49,11 +49,30 @@ MIME-sniffing protection, a restrictive referrer policy, and a Content Security
 Policy. Enable `FORCE_HTTPS=true` only when the deployment terminates traffic
 over HTTPS.
 
-## Test
+## Test and CI/CD
+
+Run tests locally:
 
 ```bash
 .venv/bin/python -m pytest backend/tests -q
 ```
+
+The repository includes a GitHub Actions workflow in [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) that boots an automated PostgreSQL service container, runs the test suite, and checks the Docker build on every push and pull request.
+
+## Load Testing and Benchmarks
+
+Repeatable load testing utilities are in the [`load-tests/`](./load-tests) directory:
+
+```bash
+# Run headless benchmark against local or remote service
+.venv/bin/python load-tests/run_benchmark.py --url http://127.0.0.1:8000 --users 10 --duration 10
+
+# Or run Locust interactive load test
+pip install -r load-tests/requirements.txt
+locust -f load-tests/locustfile.py --host=http://localhost:8000
+```
+
+Detailed benchmarking methodology and results are documented in [docs/benchmark-results.md](./docs/benchmark-results.md).
 
 ## Main endpoints
 

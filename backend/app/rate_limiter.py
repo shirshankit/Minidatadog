@@ -52,3 +52,4 @@ class SlidingWindowRateLimiter:
 
 # Default singleton instance for ingestion endpoints
 ingest_rate_limiter = SlidingWindowRateLimiter(default_limit=120, window_seconds=60.0)
+

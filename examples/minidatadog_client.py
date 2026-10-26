@@ -6,7 +6,7 @@ traces to a MiniDatadog instance using an API key.
 
 from datetime import datetime, timezone
 from typing import Any
-import requests
+import httpx
 
 
 class MiniDatadogClient:
@@ -23,12 +23,12 @@ class MiniDatadogClient:
         self.base_url = base_url.rstrip("/")
         self.service_name = service_name
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
+        self.client = httpx.Client(
+            headers={
                 "X-API-Key": self.api_key,
                 "Content-Type": "application/json",
-            }
+            },
+            timeout=self.timeout,
         )
 
     # --- Metrics ---
@@ -51,7 +51,7 @@ class MiniDatadogClient:
             "duration_ms": float(duration_ms),
             "request_id": request_id,
         }
-        resp = self.session.post(
+        resp = self.client.post(
             f"{self.base_url}/api/v1/ingest/metrics",
             json=payload,
             timeout=self.timeout,
@@ -64,7 +64,7 @@ class MiniDatadogClient:
         for m in metrics:
             if "service_name" not in m:
                 m["service_name"] = self.service_name
-        resp = self.session.post(
+        resp = self.client.post(
             f"{self.base_url}/api/v1/ingest/metrics/batch",
             json={"metrics": metrics},
             timeout=self.timeout,
@@ -88,7 +88,7 @@ class MiniDatadogClient:
             "message": message,
             "request_id": request_id,
         }
-        resp = self.session.post(
+        resp = self.client.post(
             f"{self.base_url}/api/v1/ingest/logs",
             json=payload,
             timeout=self.timeout,
@@ -101,7 +101,7 @@ class MiniDatadogClient:
         for l in logs:
             if "service_name" not in l:
                 l["service_name"] = self.service_name
-        resp = self.session.post(
+        resp = self.client.post(
             f"{self.base_url}/api/v1/ingest/logs/batch",
             json={"logs": logs},
             timeout=self.timeout,
@@ -138,7 +138,7 @@ class MiniDatadogClient:
             "finished_at": finished_at,
             "parent_span_id": parent_span_id,
         }
-        resp = self.session.post(
+        resp = self.client.post(
             f"{self.base_url}/api/v1/ingest/traces",
             json=payload,
             timeout=self.timeout,
@@ -155,7 +155,7 @@ class MiniDatadogClient:
                 t["started_at"] = t["started_at"].isoformat()
             if isinstance(t.get("finished_at"), datetime):
                 t["finished_at"] = t["finished_at"].isoformat()
-        resp = self.session.post(
+        resp = self.client.post(
             f"{self.base_url}/api/v1/ingest/traces/batch",
             json={"traces": traces},
             timeout=self.timeout,
@@ -167,7 +167,7 @@ class MiniDatadogClient:
 
     def get_metrics(self, limit: int = 100) -> list[dict[str, Any]]:
         """Fetch recorded metrics for this project."""
-        resp = self.session.get(
+        resp = self.client.get(
             f"{self.base_url}/api/v1/data/metrics",
             params={"limit": limit},
             timeout=self.timeout,
@@ -177,7 +177,7 @@ class MiniDatadogClient:
 
     def get_logs(self, limit: int = 100) -> list[dict[str, Any]]:
         """Fetch recorded logs for this project."""
-        resp = self.session.get(
+        resp = self.client.get(
             f"{self.base_url}/api/v1/data/logs",
             params={"limit": limit},
             timeout=self.timeout,
@@ -187,7 +187,7 @@ class MiniDatadogClient:
 
     def get_traces(self, limit: int = 100) -> list[dict[str, Any]]:
         """Fetch recorded trace spans for this project."""
-        resp = self.session.get(
+        resp = self.client.get(
             f"{self.base_url}/api/v1/data/traces",
             params={"limit": limit},
             timeout=self.timeout,
@@ -200,7 +200,7 @@ class MiniDatadogClient:
         params = {}
         if since_seconds is not None:
             params["since_seconds"] = since_seconds
-        resp = self.session.get(
+        resp = self.client.get(
             f"{self.base_url}/api/v1/data/summary",
             params=params,
             timeout=self.timeout,
@@ -210,9 +210,10 @@ class MiniDatadogClient:
 
     def revoke_key(self) -> dict[str, Any]:
         """Revoke the current API key."""
-        resp = self.session.post(
+        resp = self.client.post(
             f"{self.base_url}/api/v1/api-keys/revoke",
             timeout=self.timeout,
         )
         resp.raise_for_status()
         return resp.json()
+
